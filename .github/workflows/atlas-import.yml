@@ -1,0 +1,37 @@
+name: Signature Atlas daily import
+on:
+  schedule:
+    - cron: "17 3 * * *" # daily
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: "4byte pages per kind this run"
+        default: "50"
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # resumable 4byte page cursor + uid->entity-key map survive between runs
+      - uses: actions/cache@v4
+        with:
+          path: .perpetua
+          key: atlas-state-${{ github.run_id }}
+          restore-keys: atlas-state-
+      - name: Import 4byte (+OpenChain cross-check, live calldata decode-verification) into Arkiv
+        run: pnpm --filter @perpetua/arkiv import
+        env:
+          ARKIV_PRIVATE_KEY: ${{ secrets.ARKIV_IMPORTER_PRIVATE_KEY }}
+          ARKIV_ACCESS_KEY: ${{ secrets.ARKIV_ACCESS_KEY }}
+          ATLAS_MAX_PAGES: ${{ inputs.pages || '50' }}
+          ATLAS_HOT_BLOCKS: "3"
+          PERPETUA_STATE_DIR: ${{ github.workspace }}/.perpetua
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+          ARBITRUM_RPC_URL: ${{ secrets.ARBITRUM_RPC_URL }}
+          ETHEREUM_RPC_URL: ${{ secrets.ETHEREUM_RPC_URL }}

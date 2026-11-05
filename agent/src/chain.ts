@@ -1,0 +1,26 @@
+import { createPublicClient, createWalletClient, defineChain, http, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base, baseSepolia, foundry } from "viem/chains";
+
+export function chainFor(id: number, rpc: string) {
+  if (id === base.id) return base;
+  if (id === baseSepolia.id) return baseSepolia;
+  if (id === foundry.id) return foundry;
+  if (id === 16602 || id === 16601) {
+    return defineChain({ id, name: "0G Galileo", nativeCurrency: { name: "0G", symbol: "0G", decimals: 18 }, rpcUrls: { default: { http: [rpc] } } });
+  }
+  return defineChain({ id, name: `chain-${id}`, nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpc] } } });
+}
+
+export function clients(rpc: string, chainId: number, key: Hex) {
+  const chain = chainFor(chainId, rpc);
+  const account = privateKeyToAccount(key);
+  return {
+    account,
+    chain,
+    pub: createPublicClient({ chain, transport: http(rpc) }),
+    wallet: createWalletClient({ chain, transport: http(rpc), account }),
+  };
+}
+
+export type Clients = ReturnType<typeof clients>;

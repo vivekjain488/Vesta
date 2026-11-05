@@ -1,0 +1,9 @@
+packages:
+  - packages/*
+  - agent
+  - api
+  - arkiv
+  - frontend
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

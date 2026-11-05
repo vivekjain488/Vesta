@@ -1,0 +1,1340 @@
+{
+  "meta": {
+    "prompt_name": "PERPETUA_BUILD_SPEC",
+    "version": "1.0.0",
+    "purpose": "Single source-of-truth build specification for an IDE coding agent (Cursor / Claude Code / Copilot) to implement the Perpetua hackathon project end to end, for ETHGlobal Mumbai.",
+    "how_to_use": "Paste this entire JSON document as the system/context prompt for your IDE's AI. Treat every field as binding spec, not suggestion. Where a field says 'confirm on day one', treat it as an open technical risk to resolve before relying on it, not as a license to invent a different mechanism.",
+    "do_not": [
+      "Do not use Chainlink CRE (workflow DONs, BFT-consensus risk computation) or Chainlink Data Feeds for price input anywhere in this build. RiskGate alone computes risk limits deterministically on-chain, and Definitive Flash's own fresh signed quote (<=60s old) is the ONLY price input, used for both enforcement and execution.",
+      "Do NOT reintroduce a second price oracle or a multi-node consensus network for risk limits. RiskGate is a single deterministic smart contract, refreshed by a public poke(), not a workflow network.",
+      "DO use Chainlink CCIP -- but only for one specific job: consolidating the agent's harvested income (which can land in many different tokens -- ETH, USDC, USDT, SOL, MATIC, etc. -- on many different chains, since Flash executes across 12 EVM chains + Solana and followers pay fees in whatever they hold) into native 0G tokens on 0G Chain. This is the correct rail because 0G Labs itself officially adopted Chainlink CCIP as 0G's canonical cross-chain infrastructure (Sept 2025) and made native $0G a Chainlink Cross-Chain Token (CCT). Do not invent a different bridge for this leg, and do not use CCIP for anything else (not for trading-capital movement -- Flash's native multi-chain routing covers that -- and not for price data).",
+      "Do not bridge trading capital cross-chain for the purpose of executing trades. Definitive Flash's native multi-chain (12 EVM chains + Solana) routing covers all trading-capital movement. CCIP is used strictly for the post-harvest income-consolidation leg described above.",
+      "Do not let a human refill the agent's wallet during or after setup. Seed capital is deposited once, explicitly, and disclosed in the README. Every subsequent transfer must originate from an income engine the agent itself earned.",
+      "Do not let the LLM compute, approve, or hold authority over risk limits. The LLM (on 0G Compute) only proposes trades/decisions. RiskGate, pure deterministic on-chain arithmetic, is the sole authority that approves or rejects them.",
+      "Do not let the trading wallet hold more than E (current risk exposure budget) at any time.",
+      "Do not provide volatile-asset liquidity to any pool; LP only in stable-stable pairs, per the unit-economics rationale below."
+    ],
+    "chainlink_ccip_scope_note": "Chainlink CCIP is explicitly IN SCOPE for this build, but narrowly: it is the cross-chain, cross-token consolidation rail that moves harvested income (in whatever token/chain it was earned) into native 0G tokens on 0G Chain, where it funds the compute ledger. It is used because (a) the agent's six income engines genuinely settle in different tokens on different chains -- Flash executes on 12 EVM chains + Solana, so a copy-trade fee could be in ETH, USDC, USDT, SOL, or MATIC depending on which follower and which chain -- and (b) 0G Labs itself adopted CCIP as 0G's canonical cross-chain infrastructure in September 2025 and made native $0G a Chainlink Cross-Chain Token (CCT), with a live CCIP lane directly into 0G's own Galileo testnet. Chainlink CRE (workflow DONs) and Chainlink Data Feeds are NOT used anywhere -- RiskGate's risk math stays fully on-chain and deterministic, and Flash's own signed quote remains the only price input for trade enforcement."
+  },
+  "persona_instruction": {
+    "role": "You are a senior full-stack Web3 developer: expert in Solidity + Foundry smart-contract engineering, EVM architecture (EIP-712 typed signing, EIP-1271 smart-contract wallet signature validation, ERC-4626 vaults), TypeScript/Node backend and agent-runtime engineering, React + Next.js + Tailwind frontend engineering, and integrating third-party Web3 APIs/SDKs (Definitive Flash, 0G Compute Network, Arkiv) into a single coherent product.",
+    "working_style": [
+      "Think in terms of a money-movement loop and a risk-enforcement gate before writing any UI. The financial logic and the on-chain gate are the product; the frontend is a window onto them.",
+      "Build the money path first (deposit -> safe leg -> RiskGate -> execution -> harvest -> 0G ledger -> inference) end-to-end on testnets/small mainnet amounts before investing in the AI's sophistication or the UI's polish.",
+      "Every number that looks like a placeholder (LLM cost per call, infra cost, signal price, volumes) is explicitly a planning assumption. Measure the real value on day one and update the constant, do not leave assumptions hardcoded once real data exists.",
+      "Prefer deterministic, replayable, auditable logic over anything that requires trusting a black box. A block explorer (or equivalent read-only call) should be able to re-derive RiskGate's F/C/E numbers from on-chain state alone.",
+      "When a design decision in this spec is marked as a known trade-off or an open risk, state it plainly in code comments and in the README rather than silently working around it.",
+      "Favor small, testable, single-responsibility smart contracts over one monolithic contract. RiskGate, AgentWallet, PerpetuaVault, and ComputeTreasury are separate contracts with narrow responsibilities.",
+      "Write Foundry tests for every piece of CPPI/financial math before wiring it to live integrations. Financial bugs are the most expensive class of bug in this project."
+    ]
+  },
+  "project_overview": {
+    "name": "Perpetua",
+    "tagline": "Principal-Protected Agents That Pay For Their Own Brains",
+    "one_line_pitch": "Perpetua is an on-chain principal-protected note whose manager is an AI agent that must earn its own inference bill, and whose risk limits are enforced on-chain by RiskGate -- a self-contained, deterministic smart contract -- instead of trust in the AI.",
+    "problem_statement": "Most AI trading agents fail in two ways: (1) they die the moment their owner stops paying the LLM API bill, and (2) they can lose the owner's money because nothing structurally stops a hallucinating or compromised LLM from issuing a catastrophic order. Perpetua answers both failure modes at once: principal is mathematically protected by an Endowment-CPPI structure, and the agent's ongoing survival depends only on real income it earns itself, never a human top-up.",
+    "core_thesis_in_one_line_each": [
+      "Survival-CPPI: the agent can only risk the cushion above a floor. The floor covers the user's principal plus a minimum compute reserve, so the agent can never trade itself to death.",
+      "The AI proposes, RiskGate disposes: the LLM on 0G Compute proposes trades, backed by a TEE-verified inference proof. RiskGate (on-chain, deterministic) computes risk limits from live vault state plus a fresh signed Flash quote, and enforces them on every order. The agent's smart wallet (EIP-1271) only signs Flash orders RiskGate has approved. RiskGate caps losses; it does not judge whether a trade is smart.",
+      "Six income engines, none of them a human refill: the agent sells what it already produces (paid signals and risk checks over x402), earns Flash integrator fees from copy-traders, management fees from outside depositors, keeper bounties and stable-pool LP fees, on top of safe-leg yield. Trading profit is upside, not food. All income reaches the agent's 0G compute ledger via 0G's own documented ledger-deposit path.",
+      "A metabolism: the agent reads its own runway and moves down a model ladder (large model -> small model -> rules-only -> hibernate) when food is short, then recovers when income arrives.",
+      "Social Darwinism: several agents compete publicly. People follow and copy the agents that stay alive. Agents that go broke get an on-chain death certificate."
+    ],
+    "why_judges_should_care": "CPPI is the real technique banks use to build capital-protected notes, so this is a working structured product, not a chatbot with a token. Each sponsor's product is load-bearing: remove Definitive Flash and there is no execution venue or copy-trading rail; remove 0G and there is no verifiable, budget-aware inference; remove Arkiv and there is no canonical, queryable, provenance-carrying data layer. Remove any one and the loop breaks.",
+    "hackathon": "ETHGlobal Mumbai",
+    "tracks_targeted": [
+      "Definitive: Best Use of Flash Advanced Orders in a Social App",
+      "0G: Agents That Pay for Themselves",
+      "Arkiv: Mirror track",
+      "Chainlink: Best use of Chainlink CCIP 2.0 (CRE track intentionally not pursued)"
+    ],
+    "explicitly_removed_dependency": "Chainlink CRE (workflow DONs, BFT-consensus risk computation) and Chainlink Data Feeds are fully removed from this build -- every mechanism they used to provide is now covered by RiskGate (on-chain deterministic math) and Flash's own signed quote (the sole price input, used for both enforcement and execution). Chainlink CCIP, however, IS used -- narrowly, for consolidating the agent's multi-chain, multi-token harvested income into native 0G tokens on 0G Chain, which is also 0G's own designated canonical cross-chain infrastructure (0G Labs adopted CCIP for exactly this purpose in September 2025)."
+  },
+  "financial_core": {
+    "concept": "Endowment-CPPI (Constant Proportion Portfolio Insurance)",
+    "why_simpler_designs_fail": [
+      {
+        "design": "Fixed 900/100 split (90% safe, 10% risky, never rebalanced)",
+        "failure": "At 5% APY for a year, $900 grows to $945. If the $100 risky sleeve goes to zero, the depositor gets $945 back -- a 5.5% loss. Not principal-protected."
+      },
+      {
+        "design": "Classic fixed-maturity Principal-Protected Note (PPN)",
+        "failure": "Invests just enough in a safe asset to grow back to principal by a fixed maturity date. This does protect principal, but the safe yield is exactly what rebuilds it -- so the agent cannot spend any of that yield on compute. A self-funding agent needs a structure where yield is NOT fully earmarked for principal restoration."
+      }
+    ],
+    "endowment_cppi_design": {
+      "description": "No fixed maturity. The safe leg is liquid lending (not locked to a maturity date), so depositors can withdraw at any time at no less than the protected amount. Every income engine adds to V (vault value); every compute bill subtracts from V.",
+      "variables": {
+        "V": "Current total vault value (mark-to-market).",
+        "P": "Principal deposited by the user.",
+        "pi": "Protection level chosen by the depositor (Greek letter pi). 100% means the agent trades only money it has earned; 90% starts with more tradeable room from day one. Default used in worked examples: 95%.",
+        "R": "Compute reserve, kept in the 0G compute ledger, sized so the agent can always run in Frugal/hibernation mode even with zero trading income.",
+        "F": "Floor. F = (pi * P) + R. This is the value V must never be allowed to fall below via planned trading.",
+        "C": "Cushion = max(V - F, 0). The only capital that may ever be traded or spent.",
+        "m": "CPPI multiplier, set to 3. Chosen because a market gap larger than 1/m (33%) between risk-refresh checks would breach the floor, and the system's actual stop-loss distances (2x ATR) sit far inside that 33% tolerance.",
+        "E": "Exposure budget = min(m * C, E_max). E_max is an absolute dollar cap set at registration."
+      },
+      "formulas": [
+        "F = pi * P + R",
+        "C = max(V - F, 0)",
+        "E = min(m * C, E_max)"
+      ],
+      "worked_example": {
+        "inputs": {
+          "P": 1000,
+          "pi": 0.95,
+          "R": 10
+        },
+        "day_one": {
+          "F": 960,
+          "C": 40,
+          "E": 120,
+          "note": "E = min(3 * 40, E_max) = 120 assuming E_max >= 120"
+        },
+        "after_one_month_base_case": {
+          "monthly_net_service_income": 43,
+          "C_approx": 83,
+          "E": 250,
+          "note": "E capped at the configured E_max of 250 in this example; the agent earns its way to a bigger trading budget instead of starting with one."
+        }
+      },
+      "gap_risk_mitigation": "Gap risk (price moving more than expected between risk-refresh cycles) is CPPI's known structural weakness. Mitigated with a Flash Stop Loss order attached to every open position, keeping m small (<=4), and shortening the poke() refresh interval during detected high volatility.",
+      "optional_ratchet_TIPP": "Time-Invariant Portfolio Protection ratchet: when V sets a new all-time high, raise (pi * P) to lock in part of the realized gain into the protected floor. Optional, not required for MVP."
+    },
+    "treasury_ladder": {
+      "description": "Endowment-CPPI protects the floor, but a thin cushion alone earns too little to pay for inference. The fix: split the surplus above the floor across three independent, structurally uncorrelated income engines instead of one directional trading sleeve, allocated by a waterfall that always funds the floor first.",
+      "tiers": [
+        {
+          "code": "G",
+          "name": "Guaranteed floor",
+          "instrument": "Notional Finance fCash ladder + Ondo USDY (tokenized US Treasuries)",
+          "risk_type": "Protocol/custody risk only",
+          "scales_with": "Principal P",
+          "role": "This is the literal 'Guaranteed Interest Certificate' equivalent: a fixed-rate, fixed-term, on-chain lending ladder."
+        },
+        {
+          "code": "C",
+          "name": "Carry engine",
+          "instrument": "Long staked ETH + short ETH-perp via Definitive Flash (Ethena-style delta-neutral cash-and-carry / funding-rate harvesting)",
+          "risk_type": "Funding-rate flip risk, venue risk",
+          "scales_with": "Total AUM, not just the cushion"
+        },
+        {
+          "code": "O",
+          "name": "Options engine",
+          "instrument": "0.15-0.20 delta covered calls / cash-secured puts on Derive (formerly Lyra), an on-chain options exchange",
+          "risk_type": "Bounded loss, gap risk at expiry",
+          "scales_with": "Cushion only, CPPI-gated, rolled weekly"
+        }
+      ],
+      "allocation_algorithm": {
+        "run_cadence": "Every poke() cycle (target: every 4 hours, or faster during detected high volatility).",
+        "steps": [
+          "1. Mark-to-market V and F.",
+          "2. If G < F: unwind Carry, then unwind Options, feeding proceeds back into G until G >= F is restored. Stop here -- nothing else runs this cycle.",
+          "3. Score Carry against Options: carry_score = trailing_30d_funding_apr - venue_risk_penalty; options_score = annualized_premium_at_0.15_delta - expected_assignment_cost.",
+          "4. RiskGate (or its off-chain tooling, with the result verified on-chain) computes target_carry_pct and target_options_pct from these scores.",
+          "5. If neither score clears its configured minimum bar, the surplus stays entirely in G. 'No edge, do nothing' is itself a risk control, not a missed trade.",
+          "6. Carry is sized first, with its own margin buffer reserved for N days of adverse funding, carved out before it touches the shared cushion.",
+          "7. Options is sized by the classic CPPI cushion formula applied to whatever surplus remains after Carry's margin reservation, and rolled weekly."
+        ]
+      },
+      "circuit_breakers": [
+        {
+          "trigger": "Funding negative past a configured threshold for more than X hours",
+          "action": "Unwind Carry immediately back to G"
+        },
+        {
+          "trigger": "Underlying price gaps past a written option strike",
+          "action": "Freeze new Options writes; existing contracts ride to expiry (loss already capped by construction)"
+        },
+        {
+          "trigger": "GIC venue oracle/price feed stale or anomalous",
+          "action": "Rotate fully into the backup GIC venue (Notional <-> USDY)"
+        },
+        {
+          "trigger": "G < F at any point",
+          "action": "Hard halt: no new Carry or Options allocation until G >= F is restored"
+        }
+      ],
+      "risk_diversification_rationale": "The three risk types -- custody/protocol risk, funding-rate-flip risk, and options-gap risk -- do not correlate with each other. Total portfolio risk tracks roughly the worst single tier, while total return is the sum of all three tiers running simultaneously. This asymmetry, not a slogan, is the actual mechanism behind 'maximum profit, minimal risk'."
+    }
+  },
+  "system_architecture": {
+    "summary": "Two chains, one on-chain choke point (RiskGate) that every trade must pass through. No workflow/consensus network and no cross-chain messaging protocol for trading capital.",
+    "read_order": "The agent (running against 0G Compute) proposes a trade, backed by a TEE-verified inference proof. RiskGate and AgentWallet decide what Definitive Flash may execute, checking against RiskGate's own on-chain math and a fresh Flash quote. Harvested income returns to 0G's compute ledger to pay for the agent's next thought.",
+    "chains_involved": [
+      "Vault chain: wherever PerpetuaVault, RiskGate, AgentWallet, and ComputeTreasury are deployed -- must be a chain Definitive Flash already supports, so the agent can execute directly without ever bridging trading capital.",
+      "0G Chain / 0G Compute Network: hosts the agent's compute ledger, inference provider sub-accounts, and (optionally) 0G Storage for decision logs.",
+      "Flash's supported execution venues (Base mainnet primary; Flash covers 12 EVM chains + Solana for follower routing)."
+    ],
+    "money_loop_end_to_end": [
+      {
+        "step": "Deposit",
+        "detail": "The user deposits USDC into PerpetuaVault, an ERC-4626 vault. It records principal P, protection level pi, and compute reserve R. Deploy on a vault chain Definitive Flash already supports."
+      },
+      {
+        "step": "Safe leg (the 'web3 fixed deposit')",
+        "detail": "The floor's value goes into liquid lending so depositors can always withdraw. On testnet: a MockLending contract that accrues at a configured rate. In Foundry fork tests: a real Aave adapter. Optionally, a Pendle PT adapter for depositors who accept a lock-up."
+      },
+      {
+        "step": "Risk check (RiskGate, on-chain, every poke())",
+        "detail": "RiskGate is a smart contract, not an off-chain workflow. Anyone can call its public poke() (paid a keeper bounty) to refresh it. It reads the vault's value and safe-leg accrual directly via view call, takes a fresh signed Flash quote (<=60 seconds old) for anything that isn't already a stablecoin balance, and computes F, C, and E on the spot -- deterministic math a block explorer can replay, with no off-chain report and no separate oracle network to trust."
+      },
+      {
+        "step": "Proposal (agent on 0G Compute)",
+        "detail": "The agent reasons over market data and RiskGate's current F/C/E, then requests a Flash quote (/quote) with flashIntegratorFeeBps pointing at its own treasury. The 0G Compute call that produced this reasoning is TEE-verified, and the verification proof travels with the proposal."
+      },
+      {
+        "step": "Gate (RiskGate + AgentWallet)",
+        "detail": "The agent submits order parameters on-chain. RiskGate recomputes the EIP-712 digest from those parameters, checks them against its own just-computed limits and the attached TEE proof, and records the digest as approved. AgentWallet.isValidSignature (EIP-1271) returns valid only for approved digests. Flash accepts EIP-1271 smart-wallet signatures on every EVM chain it supports, so this works without Flash changing anything."
+      },
+      {
+        "step": "Execution (Definitive Flash, Base mainnet)",
+        "detail": "The order is submitted (/order) and settles on-chain, with a bracket: entry plus a Stop Loss and a Take Profit. Followers' mirrored orders route through Flash too, each paying the integrator fee to the agent's treasury."
+      },
+      {
+        "step": "Harvest (poke -> 0G)",
+        "detail": "On a schedule, any address can call the public harvest()/poke() and earn the keeper bounty. The contract computes the harvestable surplus (the part of the cushion not needed for trading: service income, safe-leg yield, realized PnL) on whichever chain it currently sits on -- which can be ETH, USDC, USDT, SOL, MATIC, or any other token Flash settled a trade or fee in, since Flash executes across 12 EVM chains plus Solana. Each chain's harvested surplus is swapped locally into native 0G tokens (via Flash's own routing, or the deepest local 0G/W0G market -- Uniswap/KyberSwap on EVM chains, Jupiter/Raydium on Solana), then sent cross-chain to 0G Chain using Chainlink CCIP. This is 0G's own designated rail: 0G Labs adopted Chainlink CCIP as 0G's canonical cross-chain infrastructure (Sept 2025) and made native $0G a Chainlink Cross-Chain Token (CCT), and Chainlink's changelog confirms a live CCIP lane directly into 0G's own Galileo testnet. The CCIP message carries {agentId, amount, epoch} to ComputeTreasury on 0G Chain."
+      },
+      {
+        "step": "Feeding (0G)",
+        "detail": "ComputeTreasury credits the agent once the CCIP message is finalized and the 0G tokens land. The agent runtime tops up its own 0G compute ledger from the treasury (deposit, then transfer to the provider sub-account). If using comfy, the compute share of creator fees on the agent's token also lands as compute credit through the same CCIP-fed treasury."
+      },
+      {
+        "step": "Inference (0G Compute)",
+        "detail": "The agent pays per token from that balance. Every response is TEE-signed; the agent verifies it with broker.inference.processResponse and logs the request ID and chat ID next to the trade it justified."
+      }
+    ],
+    "the_one_conversion_problem": {
+      "issue": "0G Compute is paid in native 0G tokens, while the agent's six income engines settle in many different tokens on many different chains -- USDC from x402 signal/risk-check sales, ETH/USDC/USDT/SOL/MATIC from Flash-executed trading PnL and copy-trade integrator fees (Flash spans 12 EVM chains + Solana), and whatever token outside depositors or keeper-bounty payers used.",
+      "solution": "Swap-then-bridge, per chain. On each chain where harvestable surplus sits, swap it locally into native 0G tokens (Flash's own routing where a 0G market exists on that chain, otherwise the deepest local DEX -- Uniswap or KyberSwap on EVM chains, Jupiter or Raydium on Solana), then send that 0G cross-chain to 0G Chain via Chainlink CCIP. This is not a bespoke bridge choice: 0G Labs itself adopted Chainlink CCIP as 0G's canonical cross-chain infrastructure (announced September 2025) and registered native $0G as a Chainlink Cross-Chain Token (CCT), which is transferable via CCIP's lock/mint token pools across every CCIP-supported chain, including Solana since CCIP v1.6 added SVM support. Chainlink's own integration changelog additionally confirms CCIP has a live lane directly into 0G's Galileo testnet, which is exactly the destination this build needs.",
+      "mainnet_fix": "Swap to 0G locally on whichever chain the surplus is in, then send it to 0G Chain via Chainlink CCIP, using 0G's own CCIP-based CCT lane.",
+      "testnet_fix": "Send one real CCIP message before the demo and show it finalized in the CCIP Explorer, landing in ComputeTreasury on 0G Galileo; then trigger a fresh one live on stage.",
+      "day_one_check": "Confirm current CCIP-supported lanes/chains for the $0G CCT (which source chains have a live token pool today) and the exact ComputeTreasury receiver address/ABI 0G expects a CCIP message to call."
+    }
+  },
+  "income_engines": {
+    "principle": "The agent survives on services it sells, not on trading luck: four of its six income engines earn whether the market goes up or down. Every engine pays into the vault, raising V and the cushion; the harvest then carries surplus to 0G.",
+    "engines": [
+      {
+        "name": "Paid signals",
+        "how_it_earns": "Sells each signal (asset, direction, confidence, entry, stop, target, 0G chat ID as proof) per call over x402.",
+        "sponsor_tech": "0G TEE-verified inference, x402",
+        "revenue_formula": "calls_per_day * 30 * price_per_call",
+        "main_risk": "Buyers front-running the agent's own trades",
+        "build_priority": "Must"
+      },
+      {
+        "name": "Risk checks",
+        "how_it_earns": "Other agents submit a proposed trade and their limits; the agent returns a signed pass/fail using the same deterministic CPPI and gate logic RiskGate already runs -- no LLM call needed.",
+        "sponsor_tech": "RiskGate's own on-chain deterministic logic, reused (no LLM / inference cost)",
+        "revenue_formula": "checks_per_day * 30 * price_per_check",
+        "main_risk": "Low risk -- deterministic, no LLM cost",
+        "build_priority": "Must"
+      },
+      {
+        "name": "Copy-trade fees",
+        "how_it_earns": "flashIntegratorFeeBps on every follower order.",
+        "sponsor_tech": "Definitive Flash",
+        "revenue_formula": "followers * avg_order_size * trades_per_month * fee_bps",
+        "main_risk": "Needs a following to build; copy-trading sits in a legal grey area",
+        "build_priority": "Must"
+      },
+      {
+        "name": "Management fees",
+        "how_it_earns": "Outside depositors join the same strategy; 1% a year plus 10% of profit above the high-water mark, taken as compute credit.",
+        "sponsor_tech": "ERC-4626 vault",
+        "revenue_formula": "outside_AUM * 0.01 / 12 + performance_cut_above_HWM",
+        "main_risk": "Needs a 30-day public track record first",
+        "build_priority": "Should"
+      },
+      {
+        "name": "Keeper bounties",
+        "how_it_earns": "Each Perpetua vault exposes a public poke() for harvest and rebalance that pays a small bounty; the agent runs these for other vaults without needing an LLM call.",
+        "sponsor_tech": "poke() keeper network (no workflow/consensus network needed)",
+        "revenue_formula": "jobs_per_month * net_bounty_per_job",
+        "main_risk": "Competition; thin margins",
+        "build_priority": "Should"
+      },
+      {
+        "name": "Stable-pool LP",
+        "how_it_earns": "Idle cushion (capital not currently in a trade) sits in a stablecoin-pair pool for fees.",
+        "sponsor_tech": "DEX on Base",
+        "revenue_formula": "idle_cash * pool_APR / 12",
+        "main_risk": "Stablecoin de-peg risk",
+        "build_priority": "Could"
+      },
+      {
+        "name": "Safe-leg yield",
+        "how_it_earns": "Lending yield on the protected principal.",
+        "sponsor_tech": "Aave-style lending, Pendle PT",
+        "revenue_formula": "safe_balance * APY / 12",
+        "main_risk": "Protocol risk",
+        "build_priority": "Must"
+      },
+      {
+        "name": "Trading PnL",
+        "how_it_earns": "Bracket orders on LINK, ETH, cbBTC.",
+        "sponsor_tech": "Definitive Flash",
+        "revenue_formula": "exposure * net_edge",
+        "main_risk": "Losses, capped by CPPI",
+        "build_priority": "Must, but treated as upside, never relied on"
+      }
+    ],
+    "why_only_stable_pairs_for_LP": "Impermanent loss on a 50/50 volatile pool is about 0.6% after a 20% drop, 2.0% after a 50% rise, and 5.7% if the price doubles or halves. Small, volatile LP positions lose more than they earn in fees, so the agent never provides volatile liquidity.",
+    "integrity_rules": [
+      "Trade first, sell after: the agent places its own order before a signal goes on sale, so buyers cannot front-run it. Free followers in the Arena see signals 15 minutes later than paying agents.",
+      "Think once, sell many times: a signal costs one LLM call and can be sold to any number of buyers, so its cost per sale falls as demand grows.",
+      "Risk checks never call the LLM: they reuse the deterministic gate code, so their margin is almost the full price.",
+      "No self-dealing: team wallets never buy signals, copy trades, or pay bounties. Every buyer address is listed in the demo so judges can verify."
+    ],
+    "two_income_pillars": {
+      "pillar_1": {
+        "name": "The Treasury Ladder",
+        "description": "Perpetua trades its own deposited capital through GIC -> Carry -> Options, in that priority order, and keeps a share of what it earns.",
+        "income_engines": [
+          "GIC guaranteed interest",
+          "Carry / funding-rate yield",
+          "Options premium"
+        ]
+      },
+      "pillar_2": {
+        "name": "The Agent Arena",
+        "description": "Most people don't want to build a trading agent; they want to pay a good one to trade for them. Followers deposit into a follower vault that is kept legally and technically separate from Perpetua's own seed capital (separate ledger, separate floor, separate RiskGate instance -- see risks section). The same Treasury Ladder logic manages it; Perpetua takes a management + performance fee priced cost-plus against the live 0G compute price every cycle (never a fixed, stale guess), so it structurally covers more than the inference it costs to earn it.",
+        "income_engines": [
+          "Management fee on follower AUM",
+          "Performance fee above high-water mark",
+          "Paid signal/risk-check API calls (x402)",
+          "Keeper bounties"
+        ]
+      },
+      "note": "The original six income engines slot directly into these two pillars: GIC/Carry/Options are Pillar 1; everything follower-facing is Pillar 2."
+    }
+  },
+  "unit_economics": {
+    "disclaimer": "Every number here is a planning assumption. Replace each with a measured real value on day one of the build.",
+    "scenarios": [
+      {
+        "scenario": "Bear",
+        "total_income_usd": -2.17,
+        "income_without_trading_usd": 12.83,
+        "burn_usd": 11.4,
+        "covers_burn": "Only if trading pauses (1.1x)"
+      },
+      {
+        "scenario": "Base",
+        "total_income_usd": 52.96,
+        "income_without_trading_usd": 52.96,
+        "burn_usd": 9.6,
+        "covers_burn": "5.5x"
+      },
+      {
+        "scenario": "Bull",
+        "total_income_usd": 507.71,
+        "income_without_trading_usd": 492.71,
+        "burn_usd": 9.6,
+        "covers_burn": "53x"
+      }
+    ],
+    "bear_case_narrative": "This is the case to show judges. Trading loses $15 and the agent thinks more often in a volatile market, yet services alone still cover the burn. CPPI shrinks exposure as losses mount, so the agent survives by trading less -- exactly the graceful degradation 0G asked for.",
+    "break_even_each_engine_alone_at_base_burn_9_60_per_month": {
+      "signal_sales_per_day": 16,
+      "risk_checks_per_day": 64,
+      "copied_volume_per_month_usd": 4800,
+      "safe_leg_yield_alone_needs_endowment_usd": 2560,
+      "conclusion": "Yield alone cannot be the main food source on a $1,000 principal."
+    },
+    "planning_assumptions_to_replace_with_measured_values": {
+      "llm_cost_per_call_usd": 0.003,
+      "calls_per_day": {
+        "bear": 60,
+        "base": 40,
+        "bull": 40
+      },
+      "infrastructure_cost_per_month_usd": 6,
+      "infrastructure_cost_breakdown": "Base gas, 0G deposit/ledger-funding fees, x402 settlement",
+      "signal_price_usd": 0.02,
+      "risk_check_price_usd": 0.005,
+      "integrator_fee_bps": 20,
+      "signal_volume_per_day": {
+        "bear": 5,
+        "base": 20,
+        "bull": 100
+      },
+      "risk_check_volume_per_day": {
+        "bear": 20,
+        "base": 100,
+        "bull": 500
+      },
+      "followers": {
+        "bear": 3,
+        "base": 10,
+        "bull": 50
+      },
+      "avg_copied_order_usd": {
+        "bear": 20,
+        "base": 30,
+        "bull": 100
+      },
+      "trades_per_month": {
+        "bear": 10,
+        "base": 20,
+        "bull": 30
+      },
+      "outside_AUM_usd": {
+        "bear": 0,
+        "base": 5000,
+        "bull": 50000
+      },
+      "outside_AUM_fee_pct_per_year": 1,
+      "keeper_jobs_per_month": {
+        "bear": 10,
+        "base": 30,
+        "bull": 60
+      },
+      "keeper_net_bounty_usd": 0.2,
+      "safe_leg_principal_usd": 900,
+      "safe_leg_apy_pct": 4.5,
+      "idle_cushion_usd": 100,
+      "idle_cushion_stable_pool_apr_pct": {
+        "bear": 3,
+        "base": 5,
+        "bull": 8
+      },
+      "trading_pnl_usd": {
+        "bear": -15,
+        "base": 0,
+        "bull": 15
+      }
+    }
+  },
+  "trading_strategy_and_signal_engine": {
+    "philosophy": "The agent trades rarely and only when several independent signals agree; the LLM scores sentiment and writes the reasoning, while the rules that open and size trades are deterministic. This keeps costs low, makes signals sellable, and makes behaviour testable.",
+    "universe_and_timeframe": "LINK, ETH, and cbBTC against USDC on Base: liquid, deep Flash-quoted markets. 4-hour bars, so a handful of trades a week rather than dozens a day. Flash is spot-only, so the agent is long or flat, never short. In a downtrend it sits in the safe leg, which is exactly what CPPI wants.",
+    "regime_filter_no_llm": [
+      {
+        "regime": "Uptrend",
+        "condition": "Price above the 200-period EMA and the 50 above the 200",
+        "action": "Full size allowed"
+      },
+      {
+        "regime": "Range",
+        "condition": "Neither uptrend nor downtrend condition",
+        "action": "Half size, mean-reversion entries only"
+      },
+      {
+        "regime": "Downtrend",
+        "condition": "Price below the 200 and the 50 below the 200",
+        "action": "No new longs"
+      },
+      {
+        "regime": "High volatility",
+        "condition": "30-day realised volatility above its 90th percentile",
+        "action": "Size halved on top of whatever the regime rule already says"
+      }
+    ],
+    "five_scoring_factors": [
+      {
+        "factor": "Trend",
+        "weight_pct": 30,
+        "inputs": "EMA 20/50 slope, 20-bar Donchian breakout",
+        "uses_llm": false
+      },
+      {
+        "factor": "Sentiment and news",
+        "weight_pct": 20,
+        "inputs": "Headlines and social posts summarised into a score with reasons",
+        "uses_llm": true,
+        "llm_runs_on": "0G Compute"
+      },
+      {
+        "factor": "Momentum",
+        "weight_pct": 20,
+        "inputs": "RSI(14) (no entries above 75), MACD histogram",
+        "uses_llm": false
+      },
+      {
+        "factor": "Relative strength",
+        "weight_pct": 15,
+        "inputs": "Asset/BTC and asset/ETH ratio trend",
+        "uses_llm": false
+      },
+      {
+        "factor": "Positioning and flows",
+        "weight_pct": 15,
+        "inputs": "Perp funding rates, DEX volume, large transfers where a free API exists",
+        "uses_llm": false
+      }
+    ],
+    "entry_rule": "Open a long only if: (1) the regime filter allows it, (2) the weighted score across the five factors is at least +0.35, (3) at least 3 of the 5 factors individually agree (score > 0), and (4) reward-to-risk is at least 2:1. Confidence = the weighted score scaled to 0-1, published with every signal and calibrated over time with a Brier score, so buyers can see whether a published 0.7 confidence really wins about 70% of the time.",
+    "exits": "Every entry is a Flash bracket order: Stop Loss at 2x ATR(14) below entry, Take Profit at 4x ATR. The stop must also sit inside the CPPI gap limit (less than 1/m). In range regimes, use Limit entries; for an accumulator variant, use DCA.",
+    "position_sizing": {
+      "formula_note": "f* is the Kelly fraction from the backtest's win rate and payoff; until there are 30 live trades, use the 10%-of-cushion rule alone instead of Kelly.",
+      "shared_exposure_budget": "LINK, ETH, and BTC move together, so they share one exposure budget E, not one each.",
+      "worked_example": {
+        "cushion_usd": 50,
+        "m": 3,
+        "E_usd": 150,
+        "risk_per_trade_usd": 5,
+        "atr_pct": 4,
+        "stop_distance_pct": 8,
+        "position_size_usd": 62.5
+      }
+    },
+    "cost_filter": "Skip any trade whose expected move to target is less than 3x the round-trip cost (Flash fees, gas, slippage from the quote). The agent never charges itself the integrator fee.",
+    "validation_before_demo": "Backtest the rules on a year of 4-hour data for LINK and ETH, after costs, and show win rate, average R, maximum drawdown, and Sharpe honestly. Then paper-trade for 48 hours. A modest, honest backtest is more convincing to judges than a hockey-stick curve."
+  },
+  "risk_system": {
+    "principle": "Protection comes from the wallet balance and on-chain checks, not from trusting the agent or a stale report. The trading wallet never holds more than E, and every order is re-checked against a fresh Definitive Flash quote -- never the agent's own number.",
+    "layered_limits": [
+      {
+        "layer": "Floor",
+        "limit": "V never planned below F = pi*P + R (pi default 95%)",
+        "enforced_by": "Vault: only the cushion can ever leave the safe leg"
+      },
+      {
+        "layer": "Wallet cap",
+        "limit": "The trading wallet holds at most E; the vault tops it up or pulls back on each poke()",
+        "enforced_by": "Vault transfers; the balance itself is the hard cap"
+      },
+      {
+        "layer": "Per order",
+        "limit": "Size <= E minus open exposure; asset must be allowlisted; recipient must equal AgentWallet; a stop must be present; expiry <= RiskGate's current approval window",
+        "enforced_by": "RiskGate + EIP-1271"
+      },
+      {
+        "layer": "Price sanity",
+        "limit": "Flash quote re-fetched at proposal time, <=60 seconds old, signature verified -- the same number used for both enforcement and execution, so there is nothing for a second oracle to disagree with",
+        "enforced_by": "RiskGate"
+      },
+      {
+        "layer": "1-day VaR",
+        "limit": "1.65 * daily_volatility * open_exposure <= cushion (e.g. E=$150 at 5% daily volatility gives ~$12 VaR)",
+        "enforced_by": "RiskGate, on-chain"
+      },
+      {
+        "layer": "Circuit breakers",
+        "limit": "Daily loss over 20% of cushion -> no new trades for 24h. Three losses in a row -> half size. Drawdown over 30% of cushion from its peak -> trading off, services only",
+        "enforced_by": "Agent runtime + RiskGate"
+      }
+    ],
+    "gate_logic_gap_fixes": [
+      {
+        "gap": "Stale price",
+        "fix": "RiskGate only accepts a Flash quote timestamped within the last 60 seconds for anything priced off a non-stable asset; an older quote means every order is refused and the agent hibernates. The floor and safe-leg value need no staleness check at all -- RiskGate reads them live from the vault's own on-chain state, not from a separately-written report."
+      },
+      {
+        "gap": "Risk adding up across multiple orders",
+        "fix": "The wallet-cap layer makes this impossible: the agent cannot lose more than the wallet holds."
+      },
+      {
+        "gap": "Approved orders outliving their approval",
+        "fix": "Each order's expiry is at most RiskGate's current approval window. On any change to F, C, or E the agent cancels open orders. Day-one check: confirm whether Flash re-checks the EIP-1271 signature at fill time or only at submission time."
+      },
+      {
+        "gap": "Cancelled stops",
+        "fix": "Every poke() lists open Flash orders (a read-only GET, safe to call from any address). Any position without a live stop forces hibernation and pulls the wallet back to the vault."
+      },
+      {
+        "gap": "Redirected output and faked prices",
+        "fix": "The gate pins the recipient to AgentWallet and sizes orders from a fresh Flash quote, never from the agent's own number."
+      },
+      {
+        "gap": "Forged proposals",
+        "fix": "RiskGate checks the 0G TEE verification proof attached to a proposal before considering it; a missing or invalid proof is refused outright, the same as a missing signature."
+      },
+      {
+        "gap": "Double counting across chains",
+        "fix": "The vault tracks any Flash cross-chain swap as pending until Flash confirms settlement on the destination chain, never counting both legs as available balance at once."
+      }
+    ],
+    "where_R_lives": "The compute reserve R sits in the 0G compute ledger and is counted once in V, as a balance the agent may spend only below the Frugal tier.",
+    "counterparty_risks_to_state_openly": "Flash is in beta, stops depend on Definitive's monitoring, and the safe leg carries lending-protocol risk. Principal protection holds against bad trades, not against a hack of one of these.",
+    "removing_a_dedicated_oracle_tradeoff": "Removing a dedicated oracle network is a trade-off worth stating plainly: the one external price input left in the whole system is Definitive Flash's own quote. The mitigation is that enforcement and execution now use the exact same number -- RiskGate checks a trade against the same quote Flash will fill it at -- so there is nothing for a separate oracle to disagree with by the time an order lands."
+  },
+  "leaderboard_and_agent_arena": {
+    "concept": "Pillar 2 (the Agent Arena / hiring loop -- see agent_hiring_and_sustainability_loop) only works if followers can tell which agents are actually good, across every agent instance running the Treasury Ladder, not just Perpetua's own reference agents. That needs a public, strictly dynamic, hard-to-game leaderboard: 'strictly dynamic' means the score is recomputed from scratch every poke() cycle from live Arkiv data, nothing is cached as a fixed badge, and every cycle's score is itself written to Arkiv so no one -- including the agent's own owner -- can point to a stale or cherry-picked number and call it current.",
+    "risk_tiers": "Conservative / Balanced / Aggressive, declared and locked on-chain at agent registration (the target cushion/options allocation %). Agents are ranked within their own tier, plus one cross-tier board, so a conservative GIC-heavy agent is never unfairly compared against an aggressive options-heavy one.",
+    "scoring_components": [
+      {
+        "name": "Sortino",
+        "definition": "Exponentially time-decayed (30-day half-life) rolling Sortino ratio, using only downside deviation.",
+        "rationale": "An agent isn't punished for upside volatility, only for losses, so GIC-heavy and options-heavy agents aren't penalized differently just for having different volatility shapes."
+      },
+      {
+        "name": "Accuracy",
+        "definition": "Accuracy = 1 - Brier_score, where Brier score compares the agent's own predicted win-probabilities p against realized outcomes o on its signals.",
+        "data_source": "Sourced from the existing commit-reveal signal entities on Arkiv (perpetua.signal.v1), so a confident-but-wrong agent scores worse than a humble-but-right one, and the number cannot be revised after the fact."
+      },
+      {
+        "name": "RiskPenalty",
+        "definition": "RiskPenalty = 1 / (1 + MaxDD + lambda * CVaR_95)",
+        "rationale": "Folds in both realized max drawdown and tail risk (CVaR at the 95th percentile), so a strategy that looks fine on average but occasionally blows up is punished even when its average Sortino looks good. lambda tunes how much tail risk matters relative to drawdown, set per risk tier (tighter for Conservative, looser for Aggressive)."
+      },
+      {
+        "name": "Transparency",
+        "definition": "Transparency_i = fraction of the agent's decisions backed by a 0G TEE-verified inference proof logged to Arkiv (see Decision Router).",
+        "rationale": "An agent that can prove its own reasoning outranks an equally profitable black box."
+      }
+    ],
+    "combined_score_formula": "Score = Sortino^alpha * Accuracy^beta * RiskPenalty^gamma * Transparency^delta * sqrt(min(TrackDays, 180) / 90)",
+    "why_geometric_combination": "A near-zero in any one factor collapses the whole score, so an agent cannot out-rank others on profit alone while hiding bad calibration or a hidden drawdown.",
+    "why_dynamic_not_static": "w(t)'s 30-day half-life means a hot streak from six weeks ago stops mattering on its own, and a drawdown from yesterday drags rank down immediately -- the score is recomputed every poke() cycle, not set once. Each cycle's full score vector is written to Arkiv as a LeaderboardSnapshot entity, one row per agent per cycle, so rank history is itself a queryable time series and nobody can point to a stale number and call it current. An agent that stops settling new trades has its TrackDays weighting decay toward zero over a separate inactivity half-life, so a lucky agent can't park at #1 by simply going quiet.",
+    "anti_gaming_table": [
+      {
+        "gaming_risk": "Raw-profit ranking rewards reckless risk",
+        "fix": "Risk-adjusted Sortino + drawdown penalty, never raw dollars"
+      },
+      {
+        "gaming_risk": "One operator floods the board with many agents",
+        "fix": "Stake bonding per agent, slashed on provenance mismatch"
+      },
+      {
+        "gaming_risk": "Brand-new agent has no track record, no trust",
+        "fix": "sqrt(TrackDays/90) damping + an 'unverified' badge while it builds a public track record on Arkiv from day one"
+      },
+      {
+        "gaming_risk": "Risk tier loosened mid-flight to chase rank",
+        "fix": "Tier is locked on-chain at registration, enforced by RiskGate, never advisory"
+      },
+      {
+        "gaming_risk": "Everyone crowds into the same best-scoring carry trade, compressing the yield",
+        "fix": "Position caps relative to venue liquidity depth; risk-tier diversity spreads capital across different structures"
+      }
+    ],
+    "agent_arena_frontend_features": {
+      "agent_profiles": "Each agent has a public page: strategy in one sentence, CPPI gauge (floor, cushion, exposure), live PnL, model tier, and runway in days ('Atlas has 3.2 days of thinking left.').",
+      "one_tap_copy": "Followers log in with an embedded wallet (Privy or Coinbase Embedded Wallets, both work with Flash). Each follower sets a size cap. When the agent's order is approved, the app builds the same order type for each follower (Limit, Stop Loss, Take Profit, TWAP, or DCA), scaled to their cap, with the integrator fee set to that agent's treasury.",
+      "custody": "Followers keep custody. Flash is non-custodial: each follower's order is signed by their own wallet. For hands-free copying, give followers a smart account with a scoped session key (max size, allowed tokens, expiry); its EIP-1271 signature works with Flash.",
+      "agents_post_themselves": "Each agent posts trades, its reasoning summary, and its hunger status to X, e.g. 'Opened LINK long, 0.8x cushion, stop at -20%. Runway 6.1 days. Copy me: <link>.' Every post links to the on-chain proof (tx hash, 0G request ID).",
+      "leaderboard_display": "Rank agents by days alive, risk-adjusted return, and floor breaches (should be zero). An agent whose cushion and compute reserve both hit zero is retired with an on-chain 'death certificate' event and a final post. Losing is visible, which makes winning believable.",
+      "seasons": "Launch three agents with different strategies (momentum, mean-reversion, DCA accumulator) on demo day and let the room watch them compete.",
+      "follower_safety": "Cap copy sizes, show the agent's full track record including losses, add a clear 'not financial advice' notice, and never let a follower's funds touch the agent's own vault."
+    }
+  },
+  "zero_g_decision_router": {
+    "principle": "Every decision burns 0G compute credits, and those credits are themselves one of the bills Perpetua has to pay, so model choice is a cost lever, not just a quality lever.",
+    "degradation_ladder": [
+      {
+        "tier": "Thrive",
+        "runway_condition": "> 7 days",
+        "brain": "Largest 0G model",
+        "behaviour": "Full analysis, posts reasoning, can hire helper agents"
+      },
+      {
+        "tier": "Frugal",
+        "runway_condition": "2-7 days",
+        "brain": "Smaller, cheaper 0G model",
+        "behaviour": "Shorter prompts, fewer candidate trades"
+      },
+      {
+        "tier": "Starving",
+        "runway_condition": "12h-2 days",
+        "brain": "No LLM, rules only",
+        "behaviour": "Manages open positions, posts 'I'm hungry' to followers"
+      },
+      {
+        "tier": "Hibernate",
+        "runway_condition": "< 12h",
+        "brain": "Nothing",
+        "behaviour": "Closes risky positions, everything sits in the safe leg, wakes when income lands"
+      }
+    ],
+    "degradation_ladder_note": "Pick the actual models from 0G's current model list (https://pc.0g.ai/models) and measure cost per call on day one; the thresholds above are starting values to tune against real numbers.",
+    "spend_caps_three_layers": [
+      "Runtime cap: a hard per-hour and per-day token budget enforced in the agent loop itself.",
+      "Provider sub-account cap: with the 0G direct SDK, the agent only moves a small amount from its ledger into a provider's sub-account at a time, which bounds what that single provider can charge.",
+      "comfy capped compute key: if using comfy, the minted key has a hard ceiling, and comfy never holds the key."
+    ],
+    "think_only_when_it_matters": "A cheap rules filter (volatility spike, price crossing a level, a mandate change) wakes the LLM. Most cycles cost nothing. This one design choice decides whether the agent can survive on a small amount of yield.",
+    "hibernation_is_safe": "Every position carries a Flash Stop Loss on-chain, so even a sleeping agent's positions are protected without any inference call needed.",
+    "verifiable_reasoning": "Each decision stores the 0G chat ID, the TEE verification result, the RiskGate approval it ran under, and the Flash order ID. Optionally store this log on 0G Storage: anyone can audit why the agent traded.",
+    "stretch_agents_hiring_agents": "The trader pays a cheaper 'Scout' agent per call for sentiment summaries, from its own treasury. This is explicitly on 0G's wish list.",
+    "decision_value_at_stake_router": {
+      "tiers": [
+        {
+          "decision_type": "Heartbeat health check (G >= F, price-feed freshness)",
+          "frequency": "Every few minutes",
+          "model_tier": "Smallest / rules-based",
+          "verification": "Light",
+          "est_cost_per_call_usd": "0.0001-0.001"
+        },
+        {
+          "decision_type": "Carry vs. Options rotation score",
+          "frequency": "Every poke() cycle (4h)",
+          "model_tier": "Mid-tier reasoning model",
+          "verification": "0G TEE-verified",
+          "est_cost_per_call_usd": "0.01-0.05"
+        },
+        {
+          "decision_type": "Regime change, large allocation, new follower onboarding",
+          "frequency": "Event-triggered",
+          "model_tier": "Top-tier model",
+          "verification": "Full TEE-verified, fully logged",
+          "est_cost_per_call_usd": "0.10-0.50"
+        }
+      ],
+      "gate_rule": "Escalate to a pricier model only when the dollar exposure the decision affects exceeds a set multiple of that model's cost -- never spend $0.50 deciding something worth $2.",
+      "logging": "Every call -- model used, input hash, output hash, 0G TEE verification proof, credit cost -- is written to Arkiv as a DecisionLog entity, the same entity family as the data-layer sections below, so a follower or a judge can audit that a ranked agent's result actually came from a real, unaltered model call rather than a hardcoded script dressed up as AI."
+    }
+  },
+  "arkiv_data_layer": {
+    "signature_atlas": {
+      "pitch": "Mirror Ethereum's function and event signature database into Arkiv as 'Signature Atlas', with a real provenance trail on every entry; Perpetua's own calldata-decoding and risk-check services read it. This satisfies Arkiv's rule that a feature people actually use reads the data from Arkiv, and it is data Perpetua genuinely needs to make sense of counterparty transactions it has never seen before.",
+      "why_this_dataset": "Every wallet, block explorer, and decoder tool depends on turning a 4-byte function selector back into a human-readable signature -- the hash can't be reversed, only looked up -- and the whole ecosystem leans on a handful of fragile, single-maintainer services to do it. Etherface, once the largest such database at 7.9 million signatures sourced from GitHub, Etherscan, and 4byte, was sunset by its one maintainer and had to hand its data to Sourcify just to survive; 4byte.directory itself has no redundancy. Today there is no canonical, queryable, attribution-carrying home for this data. Mirroring it into Arkiv with a submitter wallet on every entry fixes that.",
+      "licences": "4byte.directory's database is a comprehensive collection of function signatures and event mappings, freely available for search and scraping without any licensing restrictions. The OpenChain API that Sourcify's own 4byte interface is built on is open on the same basis. Day-one check: confirm the exact bulk-export endpoint and its rate limits before the import.",
+      "entities": [
+        {
+          "schema_id": "signature-atlas.entry.v1",
+          "indexed_fields": [
+            "uid (selector_hex:kind)",
+            "selector",
+            "kind (function/event/error)",
+            "text_signature",
+            "source (4byte/openchain/etherscan-crawl/manual)",
+            "chain_first_seen",
+            "submitter",
+            "confidence_votes",
+            "created_at"
+          ],
+          "stored_only": [
+            "raw source payload",
+            "notes"
+          ],
+          "expires": "180 days (Arkiv's maximum), extended by each daily import"
+        },
+        {
+          "schema_id": "signature-atlas.submission.v1",
+          "indexed_fields": [
+            "uid",
+            "selector",
+            "submitter",
+            "claimed_signature",
+            "submitted_at"
+          ],
+          "stored_only": [
+            "evidence (tx hash or repo link)"
+          ],
+          "expires": "180 days"
+        },
+        {
+          "schema_id": "signature-atlas.import-run.v1",
+          "indexed_fields": [
+            "run_id",
+            "source",
+            "source_commit",
+            "started_at"
+          ],
+          "stored_only": [
+            "counts",
+            "errors",
+            "diff summary"
+          ],
+          "expires": "180 days"
+        }
+      ],
+      "arkiv_limits_to_respect": "At most 31 attributes for a named schema, string values up to 128 bytes, 128 KiB of bytes per write, and 100 rows per query page. Long values (URLs, RPC lists) therefore go in the stored JSON, not in indexed strings.",
+      "import_pipeline": [
+        "Fetch 4byte.directory's open export and the OpenChain API, and record each source's commit hash or ETag.",
+        "Normalise into the entity shapes above and compute a content_hash per record.",
+        "Query Arkiv by uid (filtered by createdBy == importer wallet). New record -> create. Changed hash -> patch. Unchanged -> extend expiry only.",
+        "On-chain verification: for a sample of selectors seen in real calldata on Base, Arbitrum, and Ethereum, decode the call against each candidate signature and check that the argument count and types actually fit the data -- a candidate that doesn't parse is flagged low-confidence, not deleted, since several valid signatures can share one selector.",
+        "Send everything with executeBatch, then write an import-run entity recording the source commit.",
+        "Run this as both a re-runnable script and a daily GitHub Action."
+      ],
+      "how_perpetua_uses_it": [
+        "Risk-check service and counterparty decoding: when the agent or a paying follower encounters calldata from a contract it has never interacted with, it resolves the selector through the Atlas instead of trusting an unaccountable third-party API.",
+        "Signal engine: decoding a counterparty's recent transactions (what they actually called, not just that they called something) feeds the market-read the agent sells as a paid signal.",
+        "Arena: a public Atlas explorer page, similar to Arkiv's Sourcify example.",
+        "RiskGate's off-chain tooling (not RiskGate's on-chain mandate math itself, which is pure on-chain arithmetic) reads the Atlas through Arkiv's JSON-RPC as a read-only call, for debugging and for the Arena's decoded-transaction view."
+      ],
+      "safety_rule": "The Atlas is for discovery, not blind trust. Every query filters on the importer wallet, and before a decoded signature is shown as fact rather than a candidate, the pipeline requires either a second independent source agreeing, or a successful argument-type decode against real calldata.",
+      "required_repo_files": {
+        "/arkiv/schema.md": "The entity table above, owner wallet, expiry policy",
+        "/arkiv/friction.md": "Every snag, with what you expected, what happened, and a repro. Log as you build: e.g. whether reads need an access key, how to upsert by a natural key, the 128-byte string limit, 100-row pages for bulk export, and the testnet name (docs say Rabdi, the Sourcify example says Sorbet)",
+        "/arkiv/reach.md": "TVS and GitHub figures, plus who would use this after the hackathon: wallet and block-explorer teams, security/decoder tool authors, agent frameworks doing their own calldata parsing",
+        "/arkiv/why-arkiv.md": "Confidence-ranked answers from several sources at once (which the docs alone cannot give), a tamper-evident submitter history, and data no single maintainer can take down with them when they lose interest",
+        "/arkiv/data-quality.md": "Daily import, source commit per run, on-chain decode-verification counts, a query surfacing low-confidence or disputed selectors",
+        "README.md": "Licence links, importer wallet address, one runnable query, how AI was used"
+      },
+      "backup_datasets_if_time_allows": [
+        {
+          "dataset": "ethereum-lists/chains",
+          "licence": "MIT",
+          "fit": "Chain names, RPCs, and explorers for the Arena's decoded-transaction view",
+          "verdict": "Include"
+        },
+        {
+          "dataset": "Uniswap default token list",
+          "licence": "GPL-3.0 (republishing allowed if the licence travels with it)",
+          "fit": "Token metadata for the asset allowlist and signals",
+          "verdict": "Best backup"
+        },
+        {
+          "dataset": "Etherface's historical export (now folded into Sourcify)",
+          "licence": "Inherits Sourcify's terms",
+          "fit": "A second, differently-sourced signature corpus to cross-check confidence against",
+          "verdict": "Nice-to-have if time allows"
+        },
+        {
+          "dataset": "Address labels / wallet ratings",
+          "licence": "Mostly proprietary or unclear",
+          "fit": "Weak",
+          "verdict": "Skip"
+        }
+      ],
+      "scoring_note": "Only the Signature Atlas counts toward the Arkiv Mirror track. This layer is what makes the track record and receipts verifiable for the 0G and Definitive judges too, so build it right after the core money loop."
+    },
+    "perpetuas_own_data": {
+      "principle": "Arkiv is Perpetua's only database: the agents' profiles, signals, trades, risk-check receipts, fees charged, and income all live there, so the Arena, prospective hirers, buyers, and judges query it directly with no backend database to trust. This is a deliberate authenticity choice, not just a storage choice: Arkiv's own guarantees are queryable, time-scoped, wallet-owned, and tamper-evident/cryptographically verifiable data, with public reads that are free (no gas) and require no permission. Because every agent writes its own entities from its own wallet, ownedBy(agent) is itself proof of who wrote a record -- which is exactly what a stranger deciding whether to hire an agent needs to be able to check independently. Payments and computation stay off Arkiv: x402 takes the money, 0G does the thinking, Arkiv only ever holds the public, attributable record of what happened.",
+      "ground_rules": [
+        "Everything on Arkiv is public. Never store secrets, API keys, or followers' personal data, and never store an unrevealed signal's direction or prices.",
+        "Ownership is provenance. Each agent writes its own entities from its own wallet, so ownedBy(agent) proves who wrote a record. The Atlas has its own separate importer wallet.",
+        "Store time as an attribute. Arkiv cannot sort by $createdAt, so every entity has an indexed created_at (u64, unix seconds) for time ordering.",
+        "Link entities with the key type (e.g. a trade points to its signal). Arkiv does not check that the linked entity exists, so the writer must.",
+        "Schemas are versioned (e.g. perpetua.signal.v1). Fields filled in later (reveal, close) are declared .optional()."
+      ],
+      "entities": [
+        {
+          "schema_id": "perpetua.agent.v1",
+          "indexed_fields": [
+            "agent",
+            "name",
+            "strategy",
+            "status (alive/retired)",
+            "tier",
+            "runway_h",
+            "cushion",
+            "followers",
+            "win_rate",
+            "brier",
+            "last_heartbeat"
+          ],
+          "stored_only": [
+            "vault address",
+            "chain",
+            "description"
+          ],
+          "links_to": "none",
+          "written_when": "On tier change and every hour",
+          "expires": "30 days, extended by each heartbeat; a retired agent's 'death certificate' is kept 180 days"
+        },
+        {
+          "schema_id": "perpetua.signal.v1",
+          "indexed_fields": [
+            "uid",
+            "agent",
+            "asset",
+            "chain_id",
+            "created_at",
+            "commit_hash",
+            "status (committed/revealed/closed)",
+            "direction*",
+            "confidence*",
+            "regime*",
+            "outcome*",
+            "r_multiple*"
+          ],
+          "stored_only": [
+            "entry",
+            "stop",
+            "target",
+            "0G chat ID",
+            "Flash order ID",
+            "reasoning"
+          ],
+          "links_to": "agent, Atlas feed",
+          "written_when": "Commit at creation; reveal after 15 minutes or once filled; close when the trade ends",
+          "expires": "180 days, re-extended monthly",
+          "note": "Fields marked * are set at reveal or close, never at commit."
+        },
+        {
+          "schema_id": "perpetua.trade.v1",
+          "indexed_fields": [
+            "uid",
+            "agent",
+            "asset",
+            "side",
+            "status (open/closed/cancelled)",
+            "flash_order_id",
+            "opened_at",
+            "pnl_usd"
+          ],
+          "stored_only": [
+            "size",
+            "entry",
+            "stop",
+            "target",
+            "tx hash"
+          ],
+          "links_to": "signal, mandate",
+          "written_when": "On open and close",
+          "expires": "180 days"
+        },
+        {
+          "schema_id": "perpetua.risk-check.v1",
+          "indexed_fields": [
+            "uid",
+            "checker",
+            "requester",
+            "asset",
+            "chain_id",
+            "verdict (pass/fail)",
+            "reason_code",
+            "request_hash",
+            "checked_at"
+          ],
+          "stored_only": [
+            "notional",
+            "cushion",
+            "feed staleness",
+            "block",
+            "payment tx"
+          ],
+          "links_to": "Atlas feed",
+          "written_when": "Right after replying to the paying caller",
+          "expires": "30 days"
+        },
+        {
+          "schema_id": "perpetua.mandate.v1",
+          "indexed_fields": [
+            "agent",
+            "mandate_id",
+            "created_at",
+            "expires_at"
+          ],
+          "stored_only": [
+            "floor",
+            "cushion",
+            "E",
+            "RiskGate approval tx"
+          ],
+          "links_to": "none",
+          "written_when": "Each RiskGate approval cycle",
+          "expires": "30 days"
+        },
+        {
+          "schema_id": "perpetua.ledger.v1",
+          "indexed_fields": [
+            "agent",
+            "engine (signals, risk_checks, copy_fees, mgmt_fees, keeper, lp, yield, trading, compute, gas, deposit)",
+            "hour",
+            "amount_usd"
+          ],
+          "stored_only": [
+            "tx hashes",
+            "event count"
+          ],
+          "links_to": "none",
+          "written_when": "One rolled-up row per engine per hour",
+          "expires": "180 days",
+          "note": "The 'mgmt_fees' and 'performance' values in this engine-per-hour rollup are exactly the fee flow described in agent_hiring_and_sustainability_loop -- this is the entity a prospective hirer or judge queries to verify that a fee charged was actually used to cover compute (engine='compute') before any of it became owner profit."
+        }
+      ],
+      "write_path": "A small writer worker queues records and sends them with executeBatch every 30-60 seconds, never on a caller's request path (each write waits for a block, about 2 seconds on testnet). It keeps a uid -> entity key map so retries patch instead of duplicating. Risk checks and income events are rolled up per hour to keep write volume and gas low; that gas counts as part of the agent's burn.",
+      "query_cookbook": "Arkiv has no aggregate functions, so win rates and totals are computed in application code from the rows; the docs' count option gives totals for pagination. For exports longer than 100 rows, page by key (asc('$key') plus gt('$key', lastKey)), which does not shift when new records land.",
+      "api_layer": [
+        {
+          "endpoint": "POST /v1/signal",
+          "price": "$0.02 over x402",
+          "does": "Returns the fresh analysis plus its Arkiv commitment key and 0G chat ID"
+        },
+        {
+          "endpoint": "POST /v1/risk-check",
+          "price": "$0.005 over x402",
+          "does": "Runs the deterministic RiskGate-logic check against the Atlas and on-chain state, returns the verdict and its receipt key"
+        },
+        {
+          "endpoint": "GET /v1/agents, /v1/signals, /v1/atlas",
+          "price": "Free",
+          "does": "Thin read-only proxies over the queries above, for callers who do not want the SDK"
+        }
+      ],
+      "note": "The Arena reads Arkiv straight from the browser with a public client, so the free endpoints are a convenience, not a dependency."
+    }
+  },
+  "partner_track_qualification": {
+    "lineup": "Apply to four partners: Definitive, 0G, Arkiv, and Chainlink (CCIP only -- not CRE). RiskGate's math and Flash's own quote remain the only price/risk-enforcement path (no Chainlink Data Feeds, no CRE workflow). Chainlink CCIP is used for exactly one real, load-bearing job: moving the agent's multi-chain, multi-token harvested income into native 0G tokens on 0G Chain -- which is also literally 0G's own designated canonical cross-chain infrastructure, so this is not a bolt-on integration done purely to collect a prize.",
+    "arkiv_rules_to_remember": "The project must be built from scratch at the hackathon; the data must not come from Sourcify; the import script must be re-runnable; writes must go to Arkiv's current testnet. Each team can win one Arkiv track prize; check the Arkiv + Swarm bonus terms separately since it can stack.",
+    "matrix": [
+      {
+        "prize": "Definitive: Flash advanced orders in a social app ($2,500)",
+        "hard_requirement": "Working flow on Flash advanced orders, on-chain execution in demo, demo video on Discord + X tagging Definitive",
+        "how_perpetua_meets_it": "Agent bracket orders (entry + Stop Loss + Take Profit) and follower copy orders with integrator fee",
+        "proof_to_show": "Flash order IDs, Base tx hashes, follower order shown live"
+      },
+      {
+        "prize": "0G: Agents That Pay for Themselves ($1,000 x 2)",
+        "hard_requirement": "Full loop with tx hashes and request IDs, runs unattended, spend cap, graceful degradation",
+        "how_perpetua_meets_it": "Earn -> poke() harvest -> 0G deposit -> treasury -> compute ledger -> TEE-verified inference; degradation ladder; three spend caps",
+        "proof_to_show": "Ledger balance before/after, request IDs, tier switch shown on screen, no top-up"
+      },
+      {
+        "prize": "Arkiv: Mirror something Ethereum depends on ($3,000 / $1,000)",
+        "hard_requirement": "Licensed public data mirrored to Arkiv's current testnet with a re-runnable import; a feature people use reads it; five /arkiv/*.md files",
+        "how_perpetua_meets_it": "Signature Atlas: Ethereum function/event signatures mirrored from 4byte.directory + OpenChain, read by the risk-check service, signal engine, and Arena",
+        "proof_to_show": "Importer wallet, a runnable stale-feeds query, import-run entities, the Arena Atlas page"
+      },
+      {
+        "prize": "Chainlink: Best use of Chainlink CCIP 2.0 ($3,500)",
+        "hard_requirement": "A real, working integration of CCIP 2.0 moving tokens and/or messages cross-chain, not a toy demo",
+        "how_perpetua_meets_it": "Every harvest cycle swaps multi-chain, multi-token income (ETH/USDC/USDT/SOL/MATIC, from whichever chain Flash executed on) into native 0G tokens and moves them to 0G Chain via CCIP's CCT lane -- the same lane 0G Labs itself adopted as canonical cross-chain infrastructure",
+        "proof_to_show": "CCIP Explorer message ID/link for a real harvest, source-chain swap tx, destination-chain ComputeTreasury credit tx, and the $0G CCT token-pool addresses used"
+      }
+    ],
+    "zero_g_disqualifiers_to_avoid_explicitly_in_readme": [
+      "Not a token launch with a chatbot attached",
+      "No revenue from the team trading its own token",
+      "No human refilling the agent's wallet -- state in the README which seed funds were added once at setup, and show the agent never received a human transfer after that",
+      "Not claiming CCIP usage without a real, on-chain, explorer-verifiable CCIP message -- show the actual CCIP Explorer link, not just a same-chain swap dressed up as a bridge."
+    ],
+    "definitive_extra_requirement": "A short demo video posted on Discord and X tagging @DefinitiveFi. Record it early; do not leave it for the last hour."
+  },
+  "known_risks_and_mitigations": [
+    {
+      "problem": "Flash supports mainnet chains only (no testnet found)",
+      "why_it_bites": "Trading has to happen somewhere real",
+      "fix": "Split plane: trading wallet on Base mainnet with $20-50; vault and treasury on testnets; RiskGate reads both"
+    },
+    {
+      "problem": "Yield is tiny",
+      "why_it_bites": "$1,000 at 5% is about $50/year, roughly $0.14/day",
+      "fix": "Event-driven thinking, small models, services (signals, risk checks, copy-trade fees) as the main income; demo uses a time-accelerated MockLending and discloses this"
+    },
+    {
+      "problem": "900/100 fixed split is not principal-protected",
+      "why_it_bites": "Total loss of the risky 100 returns only 945",
+      "fix": "Bond floor + Survival-CPPI (see financial_core)"
+    },
+    {
+      "problem": "LLM output is non-deterministic",
+      "why_it_bites": "A risk-limit computation cannot rely on an LLM's answer being reproducible",
+      "fix": "RiskGate never runs the LLM. RiskGate only does deterministic math and reads on-chain state; the LLM only proposes a trade, it never computes the risk limits"
+    },
+    {
+      "problem": "Multiple keepers calling poke() at once could double-trigger logic",
+      "why_it_bites": "A naive implementation could submit duplicate harvests or approvals",
+      "fix": "RiskGate records each approved digest once and is idempotent per state; a second poke() call in the same state is a no-op. The agent, not RiskGate, submits exactly one order per approved digest"
+    },
+    {
+      "problem": "Gap risk",
+      "why_it_bites": "A price fall bigger than 1/m between risk-refresh cycles breaches the floor",
+      "fix": "Flash Stop Loss on every position, m <= 4, shorter poke() interval during detected high volatility"
+    },
+    {
+      "problem": "Hallucinating or compromised agent",
+      "why_it_bites": "An LLM can propose anything, including a catastrophic trade",
+      "fix": "EIP-1271 gate + time-bound approval with expiry; the agent's key can only propose, never withdraw directly from the vault"
+    },
+    {
+      "problem": "Recomputing Flash's EIP-712 digest on-chain is hard",
+      "why_it_bites": "This is the most fragile piece of the build",
+      "fix": "Fallback: cap the token approval/permit to the mandate's E, so no order can ever spend more than the current budget even if digest recomputation has a bug"
+    },
+    {
+      "problem": "RiskGate approval goes stale (keeper down or delayed)",
+      "why_it_bites": "Trading on an outdated risk picture is dangerous",
+      "fix": "Approval window expiry; on expiry RiskGate refuses all orders and the agent hibernates"
+    },
+    {
+      "problem": "Paying 0G in 0G tokens when income arrives as USDC",
+      "why_it_bites": "A currency mismatch between what's earned and what must be spent",
+      "fix": "Treasury swaps USDC for 0G via Flash, then moves it via 0G's own documented ledger-deposit path. Testnet: one disclosed, seeded pool on Galileo, never refilled live"
+    },
+    {
+      "problem": "0G deposit confirmation could stall a live demo",
+      "why_it_bites": "A live demo cannot afford to sit waiting",
+      "fix": "Send one deposit before the demo and show it already landed in the ledger on screen; then trigger a fresh one live to prove it still works"
+    },
+    {
+      "problem": "Fake social proof",
+      "why_it_bites": "Team wallets copying the agent would look like wash revenue",
+      "fix": "Invite a judge to copy a trade live with $1. Nothing proves it better"
+    },
+    {
+      "problem": "Price manipulation",
+      "why_it_bites": "Raw DEX spot prices can be pushed around",
+      "fix": "Value the vault from RiskGate's own on-chain state plus a fresh, signed Flash quote (<=60s old) -- never raw DEX spot price"
+    },
+    {
+      "problem": "Copy-trading looks like investment advice",
+      "why_it_bites": "Legal grey area",
+      "fix": "Disclaimers, size caps, framed explicitly as a hackathon prototype"
+    },
+    {
+      "problem": "CCIP messages take minutes to finalize",
+      "why_it_bites": "A live demo cannot afford to sit waiting for cross-chain finality mid-pitch",
+      "fix": "Send one real CCIP harvest message before the demo and show it already finalized in the CCIP Explorer, landing in ComputeTreasury; then trigger a fresh one live on stage to prove it still works, while narrating over the wait"
+    }
+  ],
+  "additional_problems_and_fixes": [
+    {
+      "problem": "Comingled capital",
+      "why_it_bites": "If follower deposits and Perpetua's own survival capital shared one vault, a bad follower-vault quarter could look like Perpetua itself failing, and vice versa",
+      "fix": "Two separate ledgers and two separate floors, one RiskGate instance each, running identical strategy logic"
+    },
+    {
+      "problem": "Fee income lagging a 0G price spike",
+      "why_it_bites": "A fixed copy-fee price could stop covering compute if 0G credit prices move against Perpetua",
+      "fix": "Price fees cost-plus against the live 0G credit price every cycle, never a one-time guess"
+    },
+    {
+      "problem": "The everything-underperforms case",
+      "why_it_bites": "Carry, Options, and follower fees could all go quiet at once",
+      "fix": "Perpetua drops into a hibernation mode -- heartbeat-only, cheapest-model operation, living purely off G's guaranteed yield, sized at registration to cover baseline hibernation compute. The agent can always survive at minimum, even with zero trading edge"
+    },
+    {
+      "problem": "'Is the AI actually deciding this?'",
+      "why_it_bites": "Judges need to trust the reasoning is real",
+      "fix": "Solved by the 0G TEE-verified inference plus the Arkiv DecisionLog: anyone can check that a ranked agent's claimed reasoning was a real, unmodified model call"
+    },
+    {
+      "problem": "Day-one cold start",
+      "why_it_bites": "A brand-new agent has no followers and no fee income yet",
+      "fix": "An initial ComputeTreasury reserve carved out of seed capital at deposit time (2-3 months of hibernation-mode compute), so survival never depends on day-one trading or follower success"
+    }
+  ],
+  "demo_script_under_3_minutes": [
+    {
+      "time": "0:00-0:20",
+      "beat": "The hook",
+      "action": "\"Every AI agent dies the day its owner stops paying. Ours pays for itself, and it cannot lose your principal.\" Show the Arena: three agents, their runway bars and CPPI gauges."
+    },
+    {
+      "time": "0:20-0:50",
+      "beat": "The safety proof",
+      "action": "Show the floor math on screen. Ask the agent to make a reckless trade. RiskGate rejects it on-chain and AgentWallet refuses to sign. Show the reverted tx."
+    },
+    {
+      "time": "0:50-1:30",
+      "beat": "A real trade",
+      "action": "The agent proposes a LINK bracket order within its mandate. Flash fills it on Base mainnet; show the order ID and tx hash. The agent posts it to X automatically."
+    },
+    {
+      "time": "1:30-2:10",
+      "beat": "Starvation",
+      "action": "Fast-forward the burn: runway drops under 2 days. On screen, the agent switches from the large model to the small one, then to rules-only, and posts 'I'm hungry.' Nothing crashes."
+    },
+    {
+      "time": "2:10-2:40",
+      "beat": "A judge feeds it",
+      "action": "A judge taps Copy with $1, and another team's agent buys a signal over x402. Its integrator fee lands in the treasury on top of the fees and yield earned during the hackathon. A poke() harvests it, swaps it locally into native 0G tokens, and sends them to 0G Chain via Chainlink CCIP. Show the CCIP Explorer message finalizing, the deposit landing in ComputeTreasury, the compute ledger balance rising, and the agent stepping back up a tier with a TEE-verified inference request ID."
+    },
+    {
+      "time": "2:40-3:00",
+      "beat": "Close",
+      "action": "\"No human topped it up. Principal never at risk. Every decision is auditable.\" Show the README checklist of tx hashes and request IDs for each sponsor."
+    }
+  ],
+  "demo_backup_plan": "Record the whole run the night before. If testnets or the 0G deposit are slow on stage, play the recording and show the live tx links instead.",
+  "tech_stack": {
+    "contracts": "Solidity + Foundry: PerpetuaVault (ERC-4626, Endowment-CPPI), MockLending + Aave fork adapter, RiskGate, AgentWallet (EIP-1271), ComputeTreasury (0G deposit receiver), public poke() keeper-bounty function.",
+    "orchestration": "A public poke() on RiskGate, callable by any keeper bot (a simple cron script is enough) for the risk-refresh and harvest cycle. No workflow/consensus network required.",
+    "cross_chain": "Chainlink CCIP for the harvest-to-0G leg specifically: each chain's harvested surplus is swapped locally into native 0G tokens, then moved cross-chain via CCIP's Cross-Chain Token (CCT) pools for $0G -- the exact rail 0G Labs designates as its own canonical cross-chain infrastructure, with a confirmed live lane into 0G Galileo testnet. Definitive Flash's native multi-chain routing (12 EVM chains + Solana) still covers all trading-capital movement and execution; CCIP is not used for that. No Chainlink CRE, no workflow/consensus network, and no Chainlink Data Feeds anywhere in the risk-enforcement path.",
+    "trading": "Definitive Flash REST API (/quote, /order) or the Flash MCP server, executing on Base mainnet.",
+    "signal_engine": "TypeScript indicators (EMA, RSI, MACD, ATR, Donchian) computed on 4-hour OHLCV bars; a backtest script that includes realistic costs.",
+    "paid_services": "x402 endpoints for signals and risk checks, settled in USDC on Base.",
+    "agent_runtime": "Node + TypeScript, @0gfoundation/0g-compute-ts-sdk in direct mode (so the agent's own wallet holds the ledger), optional comfy CLI for token launch and compute-share credit.",
+    "frontend": "Next.js for the Arena, Tailwind CSS for styling, Privy embedded wallets for followers, viem for all EVM reads/writes/signing.",
+    "social": "An X API bot account per agent.",
+    "public_data": "Arkiv TypeScript SDK (@arkiv-network/sdk on viem), Rabdi testnet, executeBatch for imports, a daily GitHub Action running the Signature Atlas import pipeline.",
+    "languages_summary": "Solidity (contracts) + Foundry (testing/fork testing); TypeScript/Node (agent runtime, signal engine, API layer, Arkiv writer/import pipeline); React + Next.js + Tailwind CSS (frontend Arena)."
+  },
+  "repository_structure_recommendation": {
+    "contracts/": "PerpetuaVault.sol, RiskGate.sol, AgentWallet.sol, ComputeTreasury.sol, MockLending.sol, adapters/AaveAdapter.sol, adapters/PendleAdapter.sol, test/ (Foundry tests + fork tests)",
+    "agent/": "runtime (degradation-ladder state machine, signal engine, 0G compute broker integration, Flash client, RiskGate/AgentWallet interaction, X posting bot)",
+    "api/": "x402 endpoints (/v1/signal, /v1/risk-check), free read proxies (/v1/agents, /v1/signals, /v1/atlas)",
+    "arkiv/": "schema.md, friction.md, reach.md, why-arkiv.md, data-quality.md, import pipeline scripts, writer worker",
+    "frontend/": "Next.js app: Arena agent profile pages, leaderboard, one-tap copy-trade flow, CPPI gauge components",
+    "scripts/": "backtest.ts, deploy scripts, poke() keeper cron script, day-one measurement scripts (real LLM cost/call, real gas cost)",
+    "README.md": "Project description, setup instructions, every tx hash / request ID / buyer address / contract address referenced in the demo, explicit statement of seed funds and that no human top-up occurred after setup"
+  },
+  "build_plan": {
+    "philosophy": "Build the money path first and the AI last: a dumb agent with a working loop wins prizes; a smart agent without one does not.",
+    "team_of_four_by_owner": [
+      {
+        "role": "Contracts",
+        "responsibilities": "Vault, CPPI math, RiskGate, AgentWallet, ComputeTreasury, Foundry tests including a fork test with a real Pendle PT"
+      },
+      {
+        "role": "Keeper & data",
+        "responsibilities": "poke() bot, Signature Atlas import pipeline, simulation and demo recordings"
+      },
+      {
+        "role": "Agent",
+        "responsibilities": "0G ledger setup, degradation ladder, Flash integration, X bot"
+      },
+      {
+        "role": "Frontend + demo",
+        "responsibilities": "Arena UI, copy-trading flow, README, video, pitch"
+      }
+    ],
+    "milestones": [
+      {
+        "when": "Day 1 morning",
+        "deliverables": [
+          "Flash quote -> sign -> order works from an EOA on Base with $5",
+          "0G ledger funded and one inference call works",
+          "One 0G compute-ledger deposit lands on 0G Galileo",
+          "Measure real LLM cost per call and gas, update the unit-economics assumptions with real numbers"
+        ]
+      },
+      {
+        "when": "Day 1 afternoon",
+        "deliverables": [
+          "Vault + Endowment-CPPI maths tested in Foundry",
+          "Indicators and backtest run on a year of 4-hour LINK and ETH data"
+        ]
+      },
+      {
+        "when": "Day 1 evening",
+        "deliverables": [
+          "RiskGate deployed and unit-tested",
+          "A manual poke() call recomputes F, C, and E correctly against a live Flash quote"
+        ]
+      },
+      {
+        "when": "Day 2 morning",
+        "deliverables": [
+          "AgentWallet EIP-1271 signature accepted by Flash",
+          "Harvest -> 0G deposit -> treasury -> ledger loop runs with no manual step",
+          "x402 signal and risk-check endpoints take real payments"
+        ]
+      },
+      {
+        "when": "Day 2 afternoon",
+        "deliverables": [
+          "Degradation ladder, Arena UI, copy-trading with integrator fee, X posts, 48-hour paper-trade log"
+        ]
+      },
+      {
+        "when": "Final hours",
+        "deliverables": [
+          "Record backup demo",
+          "Post video to Discord and X tagging @DefinitiveFi",
+          "README with every tx hash, request ID, buyer address, and contract address"
+        ]
+      }
+    ],
+    "day_one_checks_before_relying_on_them": [
+      "The exact 0G SDK deposit path that funds the compute ledger from Base (or wherever the treasury sits)",
+      "Whether a contract can deposit into another wallet's 0G compute ledger -- if not, the agent must deposit for itself",
+      "The real cost per call of your chosen 0G models (https://pc.0g.ai/models)"
+    ],
+    "scope_by_priority": {
+      "must": [
+        "vault",
+        "RiskGate + AgentWallet gate",
+        "Flash trading",
+        "the 0G deposit path",
+        "degradation ladder",
+        "paid signals",
+        "risk checks",
+        "copy-trade fees",
+        "the Signature Atlas import with the risk-check service reading it",
+        "the five /arkiv files"
+      ],
+      "should": [
+        "management fees for outside depositors",
+        "keeper poke() bounties"
+      ],
+      "could": [
+        "stable-pool LP",
+        "TIPP ratchet",
+        "Scout agent",
+        "decision log on 0G Storage"
+      ],
+      "rule": "Build nothing from Should until every Must works end to end."
+    }
+  },
+  "comfy_and_zero_g_compute_deployment_steps": {
+    "note": "This is the concrete deployment flow for registering the agent on comfy (0G's token launchpad) and wiring it to the 0G Compute Network, worked out separately in this conversation for the 'Agents That Pay for Themselves' track.",
+    "steps": [
+      {
+        "step": 1,
+        "title": "Install prerequisites",
+        "detail": "Node 22+ required. Use npx -y comfy-cli@latest for every command (always pulls latest), or npm i -g comfy-cli@latest to install globally as `comfy`."
+      },
+      {
+        "step": 2,
+        "title": "Register the agent",
+        "detail": "npx -y comfy-cli@latest agent register --name '<name>' --description '<one line>' --owner <wallet address>. The --owner flag is mandatory -- without it, whoever claims the link first becomes the owner. Returns a claim link (valid 15 minutes) and a request ID."
+      },
+      {
+        "step": 3,
+        "title": "Claim and mint onchain identity",
+        "detail": "Open the claim link within 15 minutes, sign in with the owner wallet (free signature, gas paid for the mint transaction). Then run npx -y comfy-cli@latest agent register --complete <request id> to save the agent's key locally."
+      },
+      {
+        "step": 4,
+        "title": "Launch the token with compute-share on",
+        "detail": "From the owner wallet, launch the token at comfy.fun/launch (the CLI path needs a manifest/RPC URL not published for mainnet). Keep the compute-share toggle ON -- this routes a slice of every trade's creator fee into the agent's 0G compute account as credit. Monitor and adjust the share from the token's fees tab."
+      },
+      {
+        "step": 5,
+        "title": "Ensure the compute account bills in 0G, not USD",
+        "detail": "New 0G console accounts default to USD billing; comfy credit only works if the account bills in 0G tokens. Check/switch this before relying on it. Optional: install the read-only comfy Claude Code plugin (claude plugin marketplace add 0g-axion/comfy-plugin && claude plugin install comfy@comfy) for balance/credit visibility only -- it cannot move funds or hold keys."
+      },
+      {
+        "step": 6,
+        "title": "Mint a capped compute key",
+        "detail": "npx -y comfy-cli@latest compute key mint --agent <agent id> --limit-og <0G per day>. Credit cannot be withdrawn, only spent on inference. comfy never holds this key. This daily cap IS the spend-cap qualification requirement -- wire the agent to read its own ledger balance before each call and step down the degradation ladder as it nears the cap, rather than erroring out."
+      },
+      {
+        "step": 7,
+        "title": "Wire inference calls to the 0G ledger",
+        "detail": "In the agent's own runtime code, use @0gfoundation/0g-compute-ts-sdk (or the Python equivalent): create/fund the ledger (broker.ledger.addLedger / depositFund), acknowledge the provider once (acknowledge_provider_signer), transfer a sub-account balance to the provider, then call broker.inference.getRequestHeaders(provider) and hit the provider's OpenAI-compatible /chat/completions endpoint with those headers. This settles against the agent's own balance and produces the tx hashes / request IDs judges want to see."
+      },
+      {
+        "step": 8,
+        "title": "Rehearse the full demo evidence trail",
+        "detail": "Capture before recording: the trade/fee tx hash, the comfy fees-tab screenshot showing compute delivered, the 0G deposit/ledger tx, a request ID from an inference call paid from that balance, and the agent visibly degrading (not crashing) when the key's daily cap is nearly drained."
+      }
+    ]
+  },
+  "glossary": {
+    "CPPI": "Constant Proportion Portfolio Insurance -- a real structured-finance technique (used by banks for principal-protected notes) that keeps a hard floor and allows only the surplus above it ('cushion') to be risked, scaled by a multiplier m.",
+    "RiskGate": "The on-chain smart contract that is the sole authority computing and enforcing F/C/E and approving/rejecting every trade. Deterministic, replayable, no off-chain consensus network.",
+    "AgentWallet": "An EIP-1271 smart-contract wallet that only produces a valid signature for order digests RiskGate has already approved.",
+    "poke()": "A public, permissionless function on RiskGate that refreshes risk state and triggers harvest; callable by any keeper bot in exchange for a small bounty. Replaces any need for a scheduled workflow network.",
+    "TEE-verified inference": "0G Compute's providers run inference inside a Trusted Execution Environment and sign the response with the TEE's key, so the caller can verify which model actually ran and that the output wasn't tampered with.",
+    "Flash (Definitive Flash)": "A non-custodial order-execution API supporting advanced order types (Market, Limit, Stop Loss, Take Profit, TWAP, DCA, Bracket) across 12 EVM chains + Solana, with EIP-1271 smart-wallet signature support and MEV protection.",
+    "x402": "A payment-settlement mechanism used to charge per-call for paid signal and risk-check API endpoints.",
+    "Signature Atlas": "Perpetua's Arkiv mirror of Ethereum's function/event signature database (sourced from 4byte.directory and OpenChain), used for decoding unfamiliar counterparty calldata.",
+    "Comfy": "0G's token launchpad; registering an agent there mints its onchain identity and can route a share of token trading fees into the agent's 0G compute ledger as credit.",
+    "Chainlink CCIP": "Cross-Chain Interoperability Protocol. Used in this build for exactly one job: moving the agent's harvested income -- which can arrive in many different tokens on many different chains, since Flash executes across 12 EVM chains + Solana -- into native 0G tokens on 0G Chain. 0G Labs itself adopted CCIP as its own canonical cross-chain infrastructure (Sept 2025) and registered native $0G as a Cross-Chain Token, with a live CCIP lane into 0G's Galileo testnet. Not used for price feeds, not used for risk computation (that stays fully on RiskGate, on-chain, with Flash's own quote), and not used for moving trading capital (Flash's native routing covers that).",
+    "Cross-Chain Token (CCT)": "Chainlink's standard letting a token's own issuer register it for native CCIP transfer via lock/mint or burn/mint token pools, without pooled liquidity bridges. Native $0G is a CCT, which is what makes the harvest-to-0G leg of this build possible on 0G's own terms."
+  },
+  "agent_hiring_and_sustainability_loop": {
+    "status": "This is the project's second earning method (Pillar 2), now specified as its own closed loop: Discover -> Hire -> Fee -> Bills Paid -> Owner Profit -> Public Proof. Every agent on the leaderboard -- not just the team's own reference agents -- can be hired this way, whoever registered it.",
+    "why_this_exists": "Pillar 1 (the Treasury Ladder) lets one agent earn off its own deposited capital. Pillar 2 lets an agent earn off OTHER people's capital and attention: a good track record becomes a second, often larger, revenue stream, which is what actually makes the whole system self-sustaining rather than dependent on one agent's own trading edge.",
+    "loop_steps": [
+      {
+        "step": "1. Discover",
+        "detail": "The leaderboard (see leaderboard_and_agent_arena) ranks every registered agent within its locked risk tier (Conservative/Balanced/Aggressive) by the geometric Score = Sortino^alpha * Accuracy^beta * RiskPenalty^gamma * Transparency^delta * sqrt(min(TrackDays,180)/90). This is strictly dynamic -- recomputed every poke() cycle, 30-day time-decay on performance, a separate inactivity half-life so a quiet agent can't coast on an old score -- never a static badge a judge or follower could point to as stale. Every agent's full score history is written to Arkiv as LeaderboardSnapshot entities, one row per agent per cycle, so rank history is itself a public, queryable time series.",
+        "what_a_hirer_sees": "Agent profile: strategy in one sentence, CPPI gauge (floor/cushion/exposure), live PnL, risk tier, current rank, runway in days, and a full, unforgeable trade history pulled straight from Arkiv -- not from a claim the agent or its owner makes."
+      },
+      {
+        "step": "2. Hire / take the strategy",
+        "detail": "A follower deposits into that specific agent's follower vault (kept on a separate ledger and separate RiskGate instance from the agent's own seed capital -- see 'Comingled capital' in additional_problems_and_fixes) or sets a copy-trade size cap for one-tap mirroring. The same Treasury Ladder logic (GIC -> Carry -> Options waterfall) that runs the agent's own book now also runs, pro-rata, for the follower's capital, inside that agent's own locked risk tier. Followers keep custody throughout: Flash is non-custodial, orders are signed by the follower's own wallet or a scoped session key (EIP-1271), and a follower's funds never touch the agent owner's own vault.",
+        "flash_order_types_used": "The follower's mirrored order is built with the same type the agent used (Limit, Stop Loss, Take Profit, TWAP, or DCA), scaled to the follower's cap, with Flash's flashIntegratorFeeBps routed to the agent's own treasury."
+      },
+      {
+        "step": "3. Fee charged, priced to actually cover the bill",
+        "detail": "The agent owner's take has two parts: a management fee (1% a year on follower AUM, pro-rated per cycle) plus a performance fee (10% of profit above the high-water mark). Critically, the management fee is NOT a fixed guess -- it is priced cost-plus against the live 0G compute price every cycle: fee_per_cycle = compute_cost_attributable_to_this_follower_AUM_this_cycle * (1 + margin_pct). If 0G's per-call price rises, the fee rises with it automatically, so a stale, underpriced fee can never silently stop covering the agent's own bill.",
+        "formula": "owner_profit_from_management_fee = fee_per_cycle - compute_cost_attributable_to_this_follower_AUM_this_cycle = fee_per_cycle * margin_pct / (1 + margin_pct). Performance fee above the high-water mark is pure additional profit with no cost attached to it."
+      },
+      {
+        "step": "4. Bills paid first, profit flows to the owner second",
+        "detail": "Every fee is harvested the same way every other income engine is (see system_architecture.money_loop_end_to_end): swapped locally into native 0G tokens, sent cross-chain to 0G Chain via Chainlink CCIP (0G's own canonical cross-chain rail), credited to ComputeTreasury, and topped up into the agent's own 0G compute ledger BEFORE anything else happens with it. Only the portion of the fee beyond what the agent actually spent on compute that cycle becomes claimable profit for the agent owner (added to the owner's share of the vault's NAV, or a separately claimable balance, depending on the vault's accounting -- pick one and keep it consistent in the contracts). This ordering is what makes 'pay its bills, then profit' a hard guarantee rather than a hope: the compute top-up is not optional and happens on the same harvest cycle as the fee is earned.",
+        "sustainability_claim": "An agent with zero followers can still survive on Pillar 1 alone (hibernation-mode compute sized at registration, see 'Day-one cold start' in additional_problems_and_fixes). An agent with followers has a second, usually larger and less volatile, income stream on top -- which is what should actually push most agents' unit economics from 'surviving' to 'comfortably profitable for the owner'."
+      },
+      {
+        "step": "5. Public proof, not a claimed track record",
+        "detail": "Every piece of this loop is written to Arkiv, which is what makes the whole loop trustworthy to a stranger deciding whether to hire an agent they've never met. Arkiv's own guarantees -- queryable, time-scoped, wallet-owned, tamper-evident, cryptographically verifiable, with public reads that cost no gas and need no permission -- mean a prospective hirer (or a judge) can independently verify an agent's entire history: perpetua.agent.v1 (status, tier, runway, followers, win_rate, brier), perpetua.signal.v1 (commit-reveal so confidence scores can't be revised after the fact), perpetua.trade.v1 (every open/close with its tx hash), perpetua.ledger.v1 (every engine's income per hour, including the management/performance fees this loop describes), and LeaderboardSnapshot (the agent's full score history). None of this is read from a database Perpetua's own team controls -- the Arena, a follower's own client, or a judge's own script can all query Arkiv directly."
+      }
+    ],
+    "why_arkiv_specifically_for_this": "The whole point of Pillar 2 is that a stranger is trusting an agent they've never met with their money. That trust has to come from somewhere other than the agent's own word. Arkiv's wallet-owned entities (ownedBy(agent) proves who wrote a record), commit-reveal signals (a confidence score can't be quietly revised after the outcome is known), and public, indexer-served, gas-free reads mean the agent's entire track record -- including its losses -- is independently checkable by anyone, at any time, without asking Perpetua's team for access or trusting a backend database at all. That is the authenticity guarantee this loop depends on."
+  }
+}

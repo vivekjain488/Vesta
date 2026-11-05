@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0d0c0a;
+  --color-panel: #15130f;
+  --color-line: #2a261f;
+  --color-paper: #ece6d8;
+  --color-dim: #8f8778;
+  --color-floor: #7fcfa0; /* protected: pi * P + R */
+  --color-cushion: #f0b445; /* the only money that may be risked */
+  --color-exposure: #ff6a45; /* E = min(m * C, E_max) */
+  --color-alive: #9be36b;
+  --color-dead: #b04a3c;
+
+  --font-display: var(--font-serif), "Times New Roman", serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, monospace;
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.grain {
+  background-image: radial-gradient(rgba(236, 230, 216, 0.035) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse-soft {
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-soft {
+    animation: none;
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/31337/
+.next/
+dist/
+*.log
+.perpetua/
+frontend/next-env.d.ts
+contracts/lib/
+contracts/deployments/local-*.json
+contracts/broadcast/

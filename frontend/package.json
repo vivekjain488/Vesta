@@ -1,0 +1,33 @@
+{
+  "name": "@perpetua/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@perpetua/core": "workspace:*",
+    "@perpetua/arkiv": "workspace:*",
+    "@arkiv-network/sdk": "1.0.1",
+    "next": "16.4.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "viem": "^2.57.16",
+    "@privy-io/react-auth": "3.51.2",
+    "@solana/kit": "8.6.0",
+    "@solana-program/token": "0.16.1",
+    "@solana-program/system": "0.16.0",
+    "@solana-program/memo": "0.16.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.4",
+    "tailwindcss": "^4.3.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.19.0",
+    "typescript": "~5.9.3"
+  }
+}

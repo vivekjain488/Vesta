@@ -1,0 +1,20 @@
+{
+  "name": "@perpetua/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "once": "tsx src/main.ts --once",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@perpetua/core": "workspace:*",
+    "@perpetua/arkiv": "workspace:*",
+    "@0gfoundation/0g-compute-ts-sdk": "0.9.0",
+    "ethers": "^6.17.0",
+    "viem": "^2.57.16",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": { "tsx": "^4.23.15", "typescript": "~5.9.3", "@types/node": "^22.19.0" }
+}
