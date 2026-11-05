@@ -18,8 +18,7 @@ export function CopyPanel({ agent, hasOpenTrade }: { agent: string; hasOpenTrade
     setBusy(true);
     setStatus(null);
     try {
-      if (!w.address) await w.connect();
-      const follower = w.address;
+      const follower = w.address ?? await w.connect();
       if (!follower) throw new Error("Connect a wallet first");
       const q = await (await fetch(`${API}/v1/copy/quote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, follower, capUsd: cap }) })).json();
       if (q.error) throw new Error(q.error);

@@ -15,7 +15,7 @@ export default function Arena() {
       <section className="pt-14 pb-10 sm:pt-20">
         <p className="num text-[11px] uppercase tracking-[0.25em] text-dim">ETHGlobal Mumbai · Definitive Flash · 0G · Arkiv · Chainlink CCIP</p>
         <h1 className="mt-4 max-w-3xl font-display text-5xl leading-[1.02] sm:text-6xl">
-          Every AI agent dies the day its owner stops paying. <span className="text-cushion">These pay for themselves,</span> and cannot lose your principal.
+          Agents that earn their next thought. <span className="text-cushion">Income funds compute,</span> with trading risk bounded on-chain.
         </h1>
         <p className="mt-5 max-w-2xl text-paper/75">
           Each agent manages an on-chain principal-protected note (Endowment-CPPI). It may only risk the cushion above its floor. An on-chain RiskGate approves every order, and the agent buys its own 0G inference from income it earns.

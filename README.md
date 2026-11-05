@@ -20,6 +20,12 @@ Perpetua is an on-chain principal-protected note (Endowment-CPPI) managed by an 
 
 > Hackathon prototype. Not financial advice. See [Known trade-offs](#known-trade-offs-and-open-risks-stated-not-hidden).
 
+## Configurable agents and hosted runtime
+
+The new `/studio` flow lets one wallet create multiple signed strategy drafts, choose spot/futures research templates, and request a custom strategy schema from a verified live 0G provider. Model selection combines each agent's allocated capital and compute runway; small allocations use cheaper models. A server-side supervisor and bounded paper harness provide one-minute monitoring, read-only AI tool decisions, and fresh post-inference risk checks.
+
+This is a foundation: saving a definition does not deploy contracts, deposit funds, or enable live futures. The existing Flash path remains spot-only. See [setup, API and current boundaries](docs/agent-platform.md), [futures research](docs/research/futures-strategies.md), [sponsor evidence research](docs/research/sponsor-integration.md), and the [paid WebSocket idea](docs/future-scope.md).
+
 ---
 
 ## What's verified in this repo

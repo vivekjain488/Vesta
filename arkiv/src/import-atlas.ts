@@ -43,9 +43,10 @@ export interface NormalisedEntry {
 }
 
 export function classify(e: { sourcesAgreeing: number; decodeVerified: number; decodeFailed: number; siblings: number }): Confidence {
+  if (e.siblings > 1) return "disputed";
   if (e.decodeFailed > 0 && e.decodeVerified === 0) return "low";
-  if (e.decodeVerified > 0 || e.sourcesAgreeing >= 2) return e.siblings > 1 && e.decodeVerified === 0 ? "disputed" : "high";
-  return e.siblings > 1 ? "disputed" : "candidate";
+  if (e.decodeVerified > 0 && e.sourcesAgreeing >= 2 && e.decodeFailed === 0) return "high";
+  return "candidate";
 }
 
 export function uidOf(selector: string, kind: string, text: string) {

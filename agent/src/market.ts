@@ -3,6 +3,7 @@ import type { Bar } from "@perpetua/core";
 
 export async function fetchBars4h(opts: { krakenPair: string; binanceSymbol: string; source?: "kraken" | "binance" | "synthetic"; limit?: number }): Promise<Bar[]> {
   const limit = opts.limit ?? 400;
+  const closed = (bars: Bar[]) => bars.filter((b) => b.t + 14400 <= Math.floor(Date.now() / 1000)).slice(-limit);
   // deterministic: the same series (and last price) whatever `limit` the caller asks for
   if (opts.source === "synthetic") return syntheticBars(Math.max(limit, 400)).slice(-limit);
   if (opts.source !== "binance") {
@@ -11,15 +12,15 @@ export async function fetchBars4h(opts: { krakenPair: string; binanceSymbol: str
       const j: any = await r.json();
       const key = Object.keys(j.result ?? {}).find((k) => k !== "last");
       if (key) {
-        return (j.result[key] as any[]).slice(-limit).map((x) => ({ t: x[0], o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[6] }));
+        return closed((j.result[key] as any[]).map((x) => ({ t: x[0], o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[6] })));
       }
     } catch {
       /* fall through */
     }
   }
-  const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${opts.binanceSymbol}&interval=4h&limit=${Math.min(limit, 1000)}`);
+  const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${opts.binanceSymbol}&interval=4h&limit=${Math.min(limit + 1, 1000)}`);
   const j: any[] = await r.json();
-  return j.map((x) => ({ t: Math.floor(x[0] / 1000), o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[5] }));
+  return closed(j.map((x) => ({ t: Math.floor(x[0] / 1000), o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[5] })));
 }
 
 /** Paged history for backtests (Binance klines, up to `bars` 4h candles). */

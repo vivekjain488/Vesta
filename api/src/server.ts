@@ -16,7 +16,10 @@ import "dotenv/config";
 import express from "express";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { checkEntry, riskGateAbi, type RiskCheckRequest } from "@perpetua/core";
+import { checkEntry, riskGateAbi, STRATEGY_TEMPLATES, templateConfig, type RiskCheckRequest } from "@perpetua/core";
+import { AgentDefinitions, type ConfigAction } from "./agent-definitions";
+import { compileStrategy } from "../../agent/src/strategy-compiler";
+import { ZeroGBrain } from "../../agent/src/zerog";
 import { ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
 import { createPublicClient, hexToString, http, keccak256, toBytes, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -39,11 +42,56 @@ const app = express();
 app.use(express.json({ limit: "64kb" }));
 app.use((_, res, next) => {
   res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type, x-payment, payment-signature");
   res.setHeader("access-control-expose-headers", "x-payment-response, payment-response");
   next();
 });
 app.options(/.*/, (_, res) => void res.sendStatus(204));
+
+// Owner configuration is independent of operator keys and on-chain deployment. These are drafts/paper only.
+const definitions = new AgentDefinitions(STATE, process.env.CONFIG_AUTH_AUDIENCE ?? `http://localhost:${PORT}`);
+let compiler: ZeroGBrain | undefined;
+let compiling = false;
+const requireConfigAuth = async (req: express.Request, action: ConfigAction, payload: unknown) => {
+  const { owner, nonce, signature } = req.body ?? {};
+  return definitions.authorize(owner, action, payload, nonce, signature);
+};
+app.get("/v1/strategy-templates", (_, res) => res.json(STRATEGY_TEMPLATES.map((t) => ({ ...t, config: templateConfig(t.id), liveSupported: false }))));
+app.get("/v1/agent-definitions", (req, res) => {
+  try { res.json(definitions.list(req.query.owner)); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/v1/config/challenge", (req, res) => {
+  try { res.json(definitions.challenge(req.body.owner, req.body.action, req.body.payload)); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/v1/agent-definitions", async (req, res) => {
+  try {
+    const owner = await requireConfigAuth(req, "create", req.body.payload);
+    res.status(201).json(definitions.save(owner, req.body.payload));
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.put("/v1/agent-definitions/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const owner = await requireConfigAuth(req, "update", { ...req.body.payload, id });
+    res.json(definitions.save(owner, req.body.payload, id));
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/v1/strategy/compile", async (req, res) => {
+  try {
+    await requireConfigAuth(req, "compile", req.body.payload);
+    if (process.env.CONFIG_COMPILER_ENABLED !== "true" || process.env.ZG_MODE !== "live" || !process.env.ZG_PRIVATE_KEY || !process.env.ZG_PROVIDER_SMALL) return void res.status(503).json({ error: "Live 0G strategy compiler is not configured. Select and edit a template." });
+    if (compiling) return void res.status(429).json({ error: "Compiler busy; retry later" });
+    compiling = true;
+    try {
+      if (!compiler) {
+        const next = new ZeroGBrain({ rpc: process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai", privateKey: process.env.ZG_PRIVATE_KEY as Hex, providerLarge: process.env.ZG_PROVIDER_LARGE ?? "", providerSmall: process.env.ZG_PROVIDER_SMALL, subAccountTopUpOg: Number(process.env.ZG_SUBACCOUNT_TOPUP_OG ?? 1), minLedgerOg: Number(process.env.ZG_MIN_LEDGER_OG ?? 3), maxTokensPerHour: 10_000, maxTokensPerDay: 50_000 });
+        compiler = await next.init();
+      }
+      res.json(await compileStrategy(compiler, req.body.payload?.prompt));
+    } finally { compiling = false; }
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
 
 // ------------------------------------------------------------------------------------------- x402
 if (PAY_TO) {

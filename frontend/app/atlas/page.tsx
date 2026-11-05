@@ -9,6 +9,7 @@ interface Row {
   sourcesAgreeing: number;
   decodeVerified: number;
   asFact: boolean;
+  corroborated: boolean;
   key: string;
 }
 
@@ -36,7 +37,7 @@ export default function Atlas() {
       <p className="num text-[11px] uppercase tracking-[0.25em] text-dim">Arkiv mirror · 4byte.directory, cross-checked against OpenChain</p>
       <h1 className="mt-3 font-display text-6xl">Signature Atlas</h1>
       <p className="mt-4 max-w-2xl text-paper/75">
-        Ethereum&apos;s function and event signatures, mirrored into Arkiv. Every entry records its source and the wallet that submitted it. Perpetua&apos;s risk-check and decoding services read it. A candidate is shown as fact only when a second independent source agrees, or it decodes real calldata.
+        Ethereum&apos;s function and event signatures, mirrored into Arkiv. Every entry records its source and the wallet that submitted it. Perpetua&apos;s risk-check and decoding services read it. Source agreement and successful decoding provide evidence; selector collisions mean they cannot prove a deployed contract&apos;s behavior.
       </p>
       <form
         className="mt-8 flex max-w-xl gap-2"
@@ -75,7 +76,7 @@ export default function Atlas() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.key} className="border-b border-line/60">
-                    <td className="num py-2.5">{r.signature}{!r.asFact && <span className="ml-2 text-[10px] uppercase text-dim">candidate</span>}</td>
+                    <td className="num py-2.5">{r.signature}<span className="ml-2 text-[10px] uppercase text-dim">{r.corroborated ? "corroborated" : "candidate"}</span></td>
                     <td className="text-dim">{r.kind}</td>
                     <td className={r.confidence === "high" ? "text-alive" : r.confidence === "low" || r.confidence === "disputed" ? "text-exposure" : "text-cushion"}>{r.confidence}</td>
                     <td className="num text-right">{r.sourcesAgreeing}</td>

@@ -35,6 +35,8 @@ export function loadConfig() {
   const strategy: StrategyKind = (process.env.AGENT_STRATEGY as StrategyKind) ??
     ({ Atlas: "momentum", Halcyon: "mean-reversion", Ember: "dca" } as Record<string, StrategyKind>)[agentName] ??
     "momentum";
+  if (!["momentum", "mean-reversion", "dca"].includes(strategy)) throw new Error("Unsupported spot strategy");
+  if (process.env.FLASH_MODE === "live" && process.env.CANDLE_SOURCE === "synthetic") throw new Error("Synthetic market data cannot be used for live trading");
 
   const assets: AssetCfg[] = process.env.ASSETS_JSON
     ? JSON.parse(process.env.ASSETS_JSON)

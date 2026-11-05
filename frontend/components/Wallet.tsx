@@ -9,7 +9,8 @@ import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 
 interface WalletCtx {
   address: string | null;
-  connect: () => Promise<void>;
+  connect: () => Promise<string | null>;
+  signMessage: (message: string) => Promise<string>;
   signTypedDataJson: (json: string) => Promise<string>;
   kind: "privy" | "injected";
 }
@@ -46,7 +47,13 @@ function PrivyBridge({ children }: { children: ReactNode }) {
     () => ({
       kind: "privy",
       address: authenticated && w ? w.address : null,
-      connect: async () => login(),
+      connect: async () => { login(); return null; },
+      signMessage: async (message) => {
+        if (!w) throw new Error("Connect your wallet first");
+        const provider = await w.getEthereumProvider();
+        const { toHex } = await import("viem");
+        return provider.request({ method: "personal_sign", params: [toHex(message), w.address] }) as Promise<string>;
+      },
       signTypedDataJson: async (json) => {
         if (!w) throw new Error("no wallet");
         return signWith(await w.getEthereumProvider(), w.address, json);
@@ -64,12 +71,18 @@ function InjectedBridge({ children }: { children: ReactNode }) {
     if (!eth) throw new Error("No wallet found. Install one, or set NEXT_PUBLIC_PRIVY_APP_ID for embedded wallets.");
     const [a] = await eth.request({ method: "eth_requestAccounts" });
     setAddress(a);
+    return a as string;
   }, []);
   const value = useMemo<WalletCtx>(
     () => ({
       kind: "injected",
       address,
       connect,
+      signMessage: async (message) => {
+        if (!address) throw new Error("Connect your wallet first");
+        const { toHex } = await import("viem");
+        return (globalThis as any).ethereum.request({ method: "personal_sign", params: [toHex(message), address] }) as Promise<string>;
+      },
       signTypedDataJson: async (json) => signWith((globalThis as any).ethereum, address!, json),
     }),
     [address, connect],

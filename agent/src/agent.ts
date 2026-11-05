@@ -203,7 +203,8 @@ export class PerpetuaAgent {
     let bars: Bar[];
     try {
       bars = await fetchBars4h({ ...a, source: this.cfg.candleSource, limit: 400 });
-    } catch {
+    } catch (e) {
+      if (this.cfg.flash.mode === "live") throw e;
       bars = syntheticBars(400);
     }
     this.bars.set(a.symbol, bars);
@@ -531,8 +532,13 @@ export class PerpetuaAgent {
       const a = this.cfg.assets.find((x) => x.symbol === t.asset)!;
       const bal = await this.vc.pub.readContract({ address: a.address, abi: erc20Abi, functionName: "balanceOf", args: [this.cfg.wallet] });
       const px = this.priceCache.get(a.address.toLowerCase()) ?? t.entry;
+      if (this.cfg.flash.mode === "live") {
+        // A local state transition is not an executed exit. Preserve the position until reconciled.
+        console.warn(`[hibernate] ${a.symbol}: live exit/reconciliation adapter required; position remains open`);
+        continue;
+      }
       if (bal > 0n && this.sim) {
-        await this.sim.fillExit({ wallet: this.cfg.wallet, tokenIn: a.address, tokenOut: this.cfg.usdc, amountIn: bal, amountOut: parseUnits(((Number(bal) / 10 ** a.decimals) * px).toFixed(6), 6) }).catch(() => {});
+        await this.sim.fillExit({ wallet: this.cfg.wallet, tokenIn: a.address, tokenOut: this.cfg.usdc, amountIn: bal, amountOut: parseUnits(((Number(bal) / 10 ** a.decimals) * px).toFixed(6), 6) });
       }
       this.closeTrade(t, px);
     }

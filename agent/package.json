@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
+    "hosted": "tsx src/hosted.ts",
     "once": "tsx src/main.ts --once",
     "typecheck": "tsc --noEmit -p ."
   },

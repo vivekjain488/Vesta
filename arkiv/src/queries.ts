@@ -32,8 +32,9 @@ export async function lookupSelector(selector: string, importer: Address = IMPOR
     confidence: r.confidence.value as string,
     sourcesAgreeing: Number(r.sources_agreeing.value),
     decodeVerified: Number(r.decode_verified.value),
-    /** Shown as fact only with a 2nd independent source or a successful decode against real calldata. */
-    asFact: Number(r.sources_agreeing.value) >= 2 || Number(r.decode_verified.value) > 0,
+    /** ABI decoding/source agreement is corroboration, never proof of a deployed contract's semantics. */
+    corroborated: r.confidence.value === "high",
+    asFact: false,
   }));
 }
 

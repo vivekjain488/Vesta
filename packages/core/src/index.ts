@@ -7,3 +7,6 @@ export * from "./economics";
 export * from "./types";
 export * from "./eip712";
 export * from "./abis";
+export * from "./agent-config";
+export * from "./futures";
+export * from "./capital-router";

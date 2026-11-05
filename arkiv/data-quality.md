@@ -15,12 +15,12 @@
 
 | grade | rule |
 |---|---|
-| `high` | ≥2 independent sources, or ≥1 successful real-calldata decode |
+| `high` | ≥2 agreeing sources plus ≥1 successful real-calldata decode, no decode failures and no known collisions |
 | `candidate` | single source, no conflict |
-| `disputed` | several signatures share the selector and none is decode-verified |
+| `disputed` | several signatures share the selector, even if one decodes successfully |
 | `low` | decoding real calldata failed and nothing decoded successfully |
 
-A decoded signature is shown as fact only if it's `high`. Otherwise the UI labels it a candidate.
+Every signature remains a candidate. A `high` record is labeled corroborated, never fact: ABI decoding and upstream agreement do not establish a deployed contract's semantics. Re-import existing rows to update earlier confidence grades.
 
 **Last dry run (2026-11-05):**
 - 295 rows (1 page per kind + 91-row live hot set);

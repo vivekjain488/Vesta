@@ -26,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Link>
               <div className="flex items-center gap-5 text-sm text-dim">
                 <Link href="/" className="hover:text-paper">Agents</Link>
+                <Link href="/studio" className="hover:text-paper">Create agent</Link>
                 <Link href="/atlas" className="hover:text-paper">Signature Atlas</Link>
                 <Link href="/proof" className="hover:text-paper">Proof</Link>
               </div>

@@ -14,14 +14,17 @@ agent.writer.start();
 console.log(`[${cfg.agentName}] proposer ${agent.vc.account.address} | wallet ${cfg.wallet} | riskGate ${cfg.riskGate} | flash=${cfg.flash.mode} 0g=${agent.brain.mode} arkiv=${agent.writer.dryRun ? "dry-run" : "rabdi"}`);
 
 let first = true;
+let running = false;
 const loop = async () => {
+  if (running) return; // Inference/RPC may outlast the interval; never overlap wallet actions.
+  running = true;
   try {
     const r = await agent.tick({ forceThink: first && args.has("--think") });
     first = false;
     console.log(`[tick] tier=${r.tier} runway=${(r.runwayH / 24).toFixed(2)}d ledger=${r.ledgerOg.toFixed(4)} 0G  E=${Number(r.mandate.E) / 1e6} C=${Number(r.mandate.C) / 1e6} woke=${r.woke.wake}(${r.woke.reason})`);
   } catch (e) {
     console.error("[tick] error:", (e as Error).message);
-  }
+  } finally { running = false; }
 };
 
 await loop();

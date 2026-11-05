@@ -15,6 +15,7 @@
     "test": "pnpm -r --if-present test && pnpm test:contracts",
     "typecheck": "pnpm -r --if-present typecheck",
     "agent": "pnpm --filter @perpetua/agent start",
+    "hosted": "pnpm --filter @perpetua/agent hosted",
     "api": "pnpm --filter @perpetua/api start",
     "arena": "pnpm --filter @perpetua/frontend dev",
     "keeper": "tsx scripts/keeper.ts",
