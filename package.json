@@ -33,7 +33,9 @@
     "registry:import": "tsx arkiv/src/import-registry.ts",
     "registry:query": "tsx scripts/query-registry.ts",
     "registry:service": "tsx scripts/registry-service-manager.ts",
-    "registry:verify": "tsx scripts/verify-registry.ts"
+    "registry:verify": "tsx scripts/verify-registry.ts",
+    "registry:health": "tsx arkiv/src/rpc-health-service.ts",
+    "registry:health-service": "tsx scripts/rpc-health-service-manager.ts"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

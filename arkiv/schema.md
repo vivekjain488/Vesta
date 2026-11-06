@@ -4,7 +4,7 @@ Schemas are defined in [src/schemas.ts](src/schemas.ts) and [src/registry-schema
 
 ## Ethereum chain and RPC registry (Mirror track)
 
-**Network:** current Rabdi testnet, chain ID `7794095`. **Owner:** `0x0f531Abb28A54435a5848AA70deF32040E2A2e65`, dedicated registry importer. Every curated read filters by this owner. These are public entities: no application login, writer key or team-issued API token is required for direct Arkiv reads.
+**Network:** current Rabdi testnet, chain ID `7794095`. **Creator and initial owner:** `0x0f531Abb28A54435a5848AA70deF32040E2A2e65`, dedicated registry importer. Every curated read filters by the creator. The creator remains fixed after ownership transfer, while the current owner controls updates and deletion. These are public entities: no application login, writer key or team-issued API token is required for direct Arkiv reads.
 
 | Schema | Indexed fields (type) | Payload and links | Expiry |
 | --- | --- | --- | --- |
@@ -30,12 +30,12 @@ import { RegistryHead, RegistryRpc } from './src/registry-schemas';
 const client = createPublicClient({ chain: rabdi({ accessKey: '' }), transport: http() });
 const writer = '0x0f531Abb28A54435a5848AA70deF32040E2A2e65' as const;
 const head = await client.select().from(RegistryHead)
-  .where(eq('uid', 'current')).ownedBy(writer).limit(1).fetch();
+  .where(eq('uid', 'current')).createdBy(writer).limit(1).fetch();
 const snapshot = head.entities[0].snapshot_id.value;
 const result = await client.select().from(RegistryRpc).where(and(
   eq('snapshot_id', snapshot), eq('chain_id', u64(16602n)),
   eq('transport', 'https'), eq('requires_key', false), eq('execution_eligible', true),
-)).ownedBy(writer).limit(100).fetch();
+)).createdBy(writer).limit(100).fetch();
 // result.entities[].payload contains the full endpoint and its source provenance.
 ```
 

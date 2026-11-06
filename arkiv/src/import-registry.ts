@@ -50,11 +50,11 @@ export function registryBatches(rows: RegistryWrite[]) {
   return batches;
 }
 
-async function existingRows(pub: any, schema: any, snapshot: string, owner: string) {
+async function existingRows(pub: any, schema: any, snapshot: string, creator: string) {
   const rows: any[] = []; let cursor: string | undefined;
   for (;;) {
     const predicates = [eq("snapshot_id", snapshot), ...(cursor ? [gt("uid", cursor)] : [])];
-    const page = await pub.select({ $key: true, uid: true }).from(schema).where(and(...predicates)).ownedBy(owner).orderBy(asc("uid")).limit(100).fetch();
+    const page = await pub.select({ $key: true, uid: true }).from(schema).where(and(...predicates)).createdBy(creator).orderBy(asc("uid")).limit(100).fetch();
     rows.push(...page.entities); if (page.entities.length < 100) break;
     cursor = value(page.entities.at(-1).uid);
   }
@@ -147,7 +147,7 @@ export async function importRegistry(options: { dryRun?: boolean } = {}) {
       contexts.delete(job.nonce);
     };
     if (!journal.jobs.length && journal.phase !== "complete") {
-      // Recover ownership-filtered natural keys even if the local cache was lost.
+      // Recover creator-filtered natural keys even if the local cache was lost.
       const [chains, rpcs] = await Promise.all([existingRows(pub, RegistryChain, snapshot, account.address), existingRows(pub, RegistryRpc, snapshot, account.address)]);
       for (const [prefix, rows] of [["chain", chains], ["rpc", rpcs]] as const) for (const r of rows) { const id = `${prefix}:${value(r.uid)}`; if (journal.keys[id]) throw new Error("Duplicate registry UID in snapshot"); journal.keys[id] = r.$key; }
       let nonce = await pub.getTransactionCount({ address: account.address, blockTag: "pending" });
@@ -163,7 +163,7 @@ export async function importRegistry(options: { dryRun?: boolean } = {}) {
       if (failure) throw failure.reason;
       console.log(`[registry] confirmed ${Object.keys(journal.keys).length}/${writes.length} entities`);
     }
-    const [chainCount, rpcCount] = await Promise.all([pub.count().from(RegistryChain).where(eq("snapshot_id", snapshot)).ownedBy(account.address).fetch(), pub.count().from(RegistryRpc).where(eq("snapshot_id", snapshot)).ownedBy(account.address).fetch()]);
+    const [chainCount, rpcCount] = await Promise.all([pub.count().from(RegistryChain).where(eq("snapshot_id", snapshot)).createdBy(account.address).fetch(), pub.count().from(RegistryRpc).where(eq("snapshot_id", snapshot)).createdBy(account.address).fetch()]);
     if (Number(chainCount) !== data.chains.length || Number(rpcCount) !== data.rpcs.length) throw new Error("Arkiv row counts do not match complete source; head was not changed");
     if (journal.control) {
       const tx = journal.control; let receipt: any;
@@ -172,10 +172,10 @@ export async function importRegistry(options: { dryRun?: boolean } = {}) {
       delete journal.control; save();
       if (receipt.status !== "success") throw new Error("Registry manifest/head transaction reverted; reconcile and retry");
     }
-    const lookup = async (schema: any, uid: string) => { const result = await pub.select({ $key: true }).from(schema).where(eq("uid", uid)).ownedBy(account.address).limit(2).fetch(); if (result.entities.length > 1) throw new Error("Duplicate registry manifest/head"); return result.entities[0]?.$key; };
+    const lookup = async (schema: any, uid: string, mustOwn = false) => { const result = await pub.select({ $key: true, $owner: true }).from(schema).where(eq("uid", uid)).createdBy(account.address).limit(2).fetch(); if (result.entities.length > 1) throw new Error("Duplicate registry manifest/head"); if (mustOwn && result.entities[0] && result.entities[0].$owner.toLowerCase() !== account.address.toLowerCase()) throw new Error("Registry manifest/head ownership transferred; writer cannot update it"); return result.entities[0]?.$key; };
     const snapshotKey = await lookup(RegistrySnapshot, snapshot);
     if (!snapshotKey) await control("manifest", { creates: [{ schema: RegistrySnapshot, values: { uid: snapshot, snapshot_id: snapshot, status: "complete", source_commit: commit, source_hash: data.contentHash, chain_count: u64(chainCount), rpc_count: u64(rpcCount), published_at_ms: u64(BigInt(Date.now())), payload: jsonBytes(report) }, expiration: ExpirationTime.fromDays(30) }] });
-    const headKey = await lookup(RegistryHead, "current");
+    const headKey = await lookup(RegistryHead, "current", true);
     const head = { uid: "current", snapshot_id: snapshot, checked_at_ms: u64(BigInt(Date.now())), source_commit: commit, payload: jsonBytes({ ...report, writer: account.address }) };
     if (headKey) await control("head", { patches: [{ schema: RegistryHead, entityKey: headKey, set: head }], extensions: [{ entityKey: headKey, expiration: ExpirationTime.fromDays(30) }] });
     else await control("head", { creates: [{ schema: RegistryHead, values: head, expiration: ExpirationTime.fromDays(30) }] });

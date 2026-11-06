@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { registryHead, registryChains, registryChain, registryRpcs, projectRpc, resolveRegistryRpc } from "@perpetua/arkiv";
 const head = await registryHead(), source = JSON.parse(readFileSync(".perpetua/registry-source-report.json", "utf8"));
+await assert.rejects(registryHead("0x0000000000000000000000000000000000000001"));
 assert.equal(head.chainCount, source.chains); assert.equal(head.rpcCount, source.rpcEntries); assert.equal(head.sourceCommit, source.sourceCommit);
 const first = await registryChains({ limit: 2 }), second = await registryChains({ limit: 2, after: first.nextAfter!, snapshot: first.snapshot });
 assert(first.rows.length === 2 && second.rows.length === 2); assert(second.rows.every((r) => r.chainId > first.nextAfter!));
@@ -21,6 +22,6 @@ assert.equal(response.status, 200); assert.equal(response.headers.get("access-co
 assert.equal((await fetch(`${base}/v1/dashboard`)).status, 401);
 const apiResolved = await fetch(`${base}/registry/resolve/16602`); assert.equal(apiResolved.status, 200); assert.equal((await apiResolved.json()).source, "arkiv");
 const evidence = { verifiedAt: new Date().toISOString(), network: "Rabdi", arkivChainId: 7794095, ...head, zeroG: resolved,
-  checks: ["complete manifest and exact upstream counts", "stable numeric keyset pagination", "indexed case-insensitive name prefix and network classification", "separate RPC transport/access filters", "payload/index/hash integrity", "live 0G chain ID verification", "project runtime selects Arkiv instead of configured URL", "anonymous public API with cross-origin reads", "wallet dashboard still requires authentication"] };
+  checks: ["creator-filtered head and untrusted creator exclusion", "complete manifest and exact upstream counts", "stable numeric keyset pagination", "indexed case-insensitive name prefix and network classification", "separate RPC transport/access filters", "payload/index/hash integrity", "live 0G chain ID verification", "project runtime selects Arkiv instead of configured URL", "anonymous public API with cross-origin reads", "wallet dashboard still requires authentication"] };
 writeFileSync("arkiv/registry-verification.json", JSON.stringify(evidence, null, 2) + "\n");
 console.log(JSON.stringify(evidence, null, 2));

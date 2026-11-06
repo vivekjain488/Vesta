@@ -8,7 +8,7 @@ import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 
 const mocks = vi.hoisted(() => ({ responses: new Map<string, any>(), lookups: 0 }));
-vi.mock("../../../arkiv/src/registry-queries", () => ({ registryOwner: () => "0x1111111111111111111111111111111111111111", registryChain: vi.fn() }));
+vi.mock("../../../arkiv/src/registry-queries", () => ({ registryCreator: () => "0x1111111111111111111111111111111111111111", registryChain: vi.fn() }));
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn(async () => [{ address: "1.1.1.1", family: 4 }]) }));
 vi.mock("node:https", () => ({ request: vi.fn((url: URL, options: any, respond: (r: any) => void) => {
   const req: any = new EventEmitter();

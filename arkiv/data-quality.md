@@ -20,7 +20,7 @@ Chain rows and RPC rows share a snapshot ID. A completed manifest records expect
 
 * Chains: numeric `chain_id`, name prefix through `search_name`, `short_name`, `network_type`, source `status`, `parent`, native symbol, total endpoint count and eligible HTTPS count.
 * RPCs: numeric chain ID, `transport`, `requires_key`, `execution_eligible`, hostname, endpoint hash and source order.
-* Both: snapshot ID, owner identity, canonical payload hash and full payload/source provenance.
+* Both: snapshot ID, creator identity, canonical payload hash and full payload/source provenance.
 
 `network_type` is explicitly an inference: test naming/slip44=1, mainnet naming/non-test slip44, otherwise **unknown**. It is not presented as a universally authoritative upstream mainnet flag. Active status means upstream status/default, not a current uptime claim. Source endpoints marked deprecated, requiring a key, malformed, insecure, private or WebSocket-only stay in the mirror; only execution eligibility changes.
 

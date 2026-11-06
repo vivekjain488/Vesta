@@ -8,7 +8,7 @@ Perpetua is an on-chain principal-protected note (Endowment-CPPI) managed by an 
 
 For **Mirror something Ethereum depends on**, the project mirrors all **2,855 EIP-155 chains** and **4,219 unique RPC endpoints** from the MIT-licensed [ethereum-lists/chains](https://github.com/ethereum-lists/chains) registry. Chains and RPCs are separate indexed Arkiv tables, published as complete, versioned snapshots with source commit, hashes, license and writer provenance. The project itself resolves remote RPCs, including 0G's blockchain RPC, through Arkiv and verifies the returned chain ID. Source endpoints are not silently substituted if Arkiv is unavailable.
 
-**Rabdi writer:** `0x0f531Abb28A54435a5848AA70deF32040E2A2e65` · chain ID **7794095**. [Deployment metadata](arkiv/registry-deployment.json) · [source license/attribution](arkiv/THIRD_PARTY_NOTICES.md) · [project MIT license](LICENSE) · [AI disclosure](AI_DISCLOSURE.md).
+**Rabdi creator and initial owner:** `0x0f531Abb28A54435a5848AA70deF32040E2A2e65` · chain ID **7794095**. [Deployment metadata](arkiv/registry-deployment.json) · [source license/attribution](arkiv/THIRD_PARTY_NOTICES.md) · [project MIT license](LICENSE) · [AI disclosure](AI_DISCLOSURE.md).
 
 ```sh
 pnpm registry:query chain 16602       # read 0G metadata/RPC entities directly from Arkiv
@@ -17,7 +17,17 @@ pnpm registry:import --dry-run        # reproduce full-source validation without
 pnpm registry:import                  # funded importer; resumes safely after interruptions
 ```
 
+To browse our chain entities in the [Rabdi explorer](https://rabdi.explorer.arkiv.network/entity-explorer), run:
+
+```text
+arkiv.schema = str('ethereum-registry.chain.v1') AND $creator = addr(0x0f531Abb28A54435a5848AA70deF32040E2A2e65)
+```
+
+Add `AND chain_id = u64(16602)` for one chain, or change the schema to `ethereum-registry.rpc.v1` for endpoint entities. These broad explorer queries include older unexpired snapshots; the application reads the active completed snapshot. Creator identifies who originally published an entity even after a transfer; its current owner can still change or delete it.
+
 Reads need no writer key or Perpetua account. The local public API is `GET http://localhost:8787/registry/chains?chainId=16602`; it has no wallet/session requirement. The signed-in app has a **Chain registry** table at `/registry`. SDK schemas and direct queries work independently of our API. Anonymous Arkiv RPC has a quota; readers can obtain their own optional access key from Arkiv Hub.
+
+The registry page also shows optional per-RPC health observations collected by our monitor: sampled availability, latency, HTTP status and chain-ID validation, with per-endpoint graphs. The observations live on the monitor host, not Arkiv. They are not an SLA. Start or inspect the local service with `pnpm registry:health-service install` / `pnpm registry:health-service status`. See [methodology and limitations](docs/rpc-health.md).
 
 Track files: [schema](arkiv/schema.md), [feedback](arkiv/friction.md), [reach](arkiv/reach.md), [why Arkiv](arkiv/why-arkiv.md), [data quality](arkiv/data-quality.md). [Full operation and RPC integration guide](docs/chain-registry.md). The earlier Signature Atlas remains a separate dataset; this registry is sourced from ethereum-lists, not Sourcify.
 

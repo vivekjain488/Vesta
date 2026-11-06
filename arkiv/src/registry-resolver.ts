@@ -2,10 +2,10 @@ import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { custom, type Transport } from "viem";
 import { classifyEndpoint, publicAddress } from "./registry-data";
-import { registryChain, registryOwner } from "./registry-queries";
+import { registryChain, registryCreator } from "./registry-queries";
 
 /** DNS is checked and pinned to the TLS request, preventing redirect/DNS-rebinding SSRF during probes. */
-export async function publicRpcRequest(endpoint: string, body: unknown, timeoutMs = 7000): Promise<any> {
+export async function publicRpcRequest(endpoint: string, body: unknown, timeoutMs = 7000, onResponse?: (status: number, headers: Record<string, string>) => void): Promise<any> {
   if (!classifyEndpoint(endpoint).eligible) throw new Error("RPC endpoint is not eligible for public execution");
   const url = new URL(endpoint), host = url.hostname.replace(/^\[|\]$/g, "");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -15,6 +15,10 @@ export async function publicRpcRequest(endpoint: string, body: unknown, timeoutM
   return new Promise((resolve, reject) => {
     const bytes = Buffer.from(JSON.stringify(body));
     const req = httpsRequest(url, { method: "POST", agent: false, family: selected.family, signal: AbortSignal.timeout(timeoutMs), headers: { "content-type": "application/json", "content-length": bytes.length }, lookup: ((_hostname: string, options: any, cb: any) => options.all ? cb(null, [selected]) : cb(null, selected.address, selected.family)) as any }, (response) => {
+      const allowed = ["retry-after", "ratelimit-limit", "ratelimit-remaining", "ratelimit-reset", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"];
+      const headers: Record<string, string> = {};
+      for (const name of allowed) { const value = response.headers?.[name]; if (typeof value === "string" && /^[\w.,;:= -]{1,128}$/.test(value)) headers[name] = value; }
+      onResponse?.(response.statusCode ?? 0, headers);
       if (response.statusCode !== 200) { response.resume(); reject(new Error(`RPC HTTP ${response.statusCode}`)); return; }
       const parts: Buffer[] = []; let size = 0;
       response.on("data", (part: Buffer) => { size += part.length; if (size > 128 * 1024) req.destroy(new Error("RPC response is too large")); else parts.push(part); });
@@ -29,7 +33,7 @@ const cache = new Map<string, { expires: number; value: ResolvedRpc }>();
 export interface ResolvedRpc { chainId: number; endpoint: string; snapshot: string; chainEntityKey: string; rpcEntityKey: string; writer: string; checkedAtMs: number; source: "arkiv" }
 export async function resolveRegistryRpc(chainId: number, options: { fresh?: boolean } = {}): Promise<ResolvedRpc> {
   if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error("Invalid chain ID");
-  const key = `${registryOwner()}:${chainId}`, cached = cache.get(key);
+  const key = `${registryCreator()}:${chainId}`, cached = cache.get(key);
   if (!options.fresh && cached && cached.expires > Date.now()) return cached.value;
   const registry = await registryChain(chainId);
   if (registry.ageMs < -1000 || registry.ageMs > 48 * 3600_000) throw new Error("Registry import is stale; refusing to select a runtime RPC");
