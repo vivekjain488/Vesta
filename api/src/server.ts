@@ -26,11 +26,14 @@ import { investments, saveExitRequest } from "./investments";
 import { WalletSessions, SESSION_COOKIE } from "./sessions";
 import { Platform } from "./platform";
 import { chainOperation, localPriceUsd, prepareLocalWithdrawal, refreshLocalRisk } from "./local-withdrawals";
-import { deployLocalAgent, localFaucet } from "./local-agents";
+import { configureComputeHarvestAll, deployLocalAgent, localFaucet } from "./local-agents";
 import { pendingWithdrawals, finishWithdrawals, startLocalRuntime } from "./local-runtime";
 import { registryRouter } from "./registry";
+import { dataMarketRouter, dataQueryPrice } from "./data-market";
+import { IncomeWallets, privyConfigured } from "./income-wallets";
+import { SwarmBundles } from "./swarm-bundles";
 import { runtimeRouter } from "./runtime";
-import { latestMarket, marketCandles, marketHistory, safeMarketError, ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
+import { latestMarket, marketCandles, marketHistory, safeMarketError, ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector, swarmEnabled, swarmStatus } from "@perpetua/arkiv";
 import { createPublicClient, erc20Abi, hexToString, http, keccak256, toBytes, parseUnits, formatUnits, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -234,6 +237,28 @@ if (PAY_TO) {
   console.warn("[x402] X402_PAY_TO not set: paid routes run UNPAID in dev mode (responses carry x-perpetua-unpaid: dev)");
   app.use(["/v1/signal", "/v1/risk-check"], (_, res, next) => (res.setHeader("x-perpetua-unpaid", "dev"), next()));
 }
+
+// ------------------------------------------------------------------------------ data market (pay per query)
+// Each agent's Privy income wallet is the payout address; income is swept into its vault and funds its compute.
+const incomeWallets = new IncomeWallets(platform);
+if ((process.env.DATA_PAYMENT_MODE ?? ((await platform.pub.getChainId().catch(() => 31337)) === 31337 ? "local" : "x402")) === "x402") {
+  const { paymentMiddleware, x402ResourceServer } = await import("@x402/express");
+  const { HTTPFacilitatorClient } = await import("@x402/core/server");
+  const { ExactEvmScheme } = await import("@x402/evm/exact/server");
+  const dataServer = new x402ResourceServer(new HTTPFacilitatorClient({ url: FACILITATOR })).register(NETWORK as any, new ExactEvmScheme());
+  const payTo = (ctx: { path: string }) => { const id = ctx.path.split("/")[3] ?? ""; const w = incomeWallets.get(id); if (!w) throw new Error("Unknown agent"); return w.address; };
+  app.use(paymentMiddleware({ "GET /data/paid/*": { accepts: [{ scheme: "exact", price: dataQueryPrice(), network: NETWORK as any, payTo, maxTimeoutSeconds: 60 }], description: "Perpetua agent data: decrypted decisions, signals or trades from Arkiv" } } as any, dataServer));
+  console.log(`[data] x402 pay-per-query on ${NETWORK}, paid to each agent's Privy income wallet`);
+} else console.log("[data] local settlement: buyers pay USDC on the local chain to the agent's Privy income wallet");
+app.use("/data", dataMarketRouter(platform, incomeWallets));
+// Swarm: encrypted paid bodies (records.ts) + public track-record bundles pointed to from Arkiv.
+const swarmBundles = new SwarmBundles(platform);
+swarmBundles.start();
+app.get("/swarm/status", async (_req, res) => { res.json({ ...(await swarmStatus()), enabled: swarmEnabled() }); });
+app.get("/swarm/bundle/:agentId", (req, res) => { const b = swarmBundles.get(String(req.params.agentId)); if (!b) return void res.status(404).json({ error: "No Swarm bundle for this agent yet" }); res.json(b); });
+app.post("/swarm/bundle/:agentId", async (req, res) => { try { const b = await swarmBundles.publish(String(req.params.agentId)); if (!b) return void res.status(409).json({ error: "Swarm disabled or the agent has no Arkiv records yet" }); res.json(b); } catch (e) { res.status(503).json({ error: (e as Error).message }); } });
+if (privyConfigured()) { void incomeWallets.ensureAll().then(() => configureComputeHarvestAll(platform)).catch((e) => console.warn("[income]", e.message)); incomeWallets.start(); }
+else console.warn("[income] PRIVY_APP_ID/SECRET not set: no agent income wallets; data sales cannot be paid out");
 
 const revenueFile = `${STATE}/x402-revenue.json`;
 function recordRevenue(engine: "signals" | "risk_checks", usd: number, req: express.Request) {

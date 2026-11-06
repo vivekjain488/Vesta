@@ -1,4 +1,7 @@
 export * from "./schemas";
+export { seal, unseal, isSealed, dataKey } from "./sealed";
+export * from "./swarm";
+export { agentRecords, AGENT_DATA_KINDS, type AgentDataKind } from "./agent-data";
 export * from "./client";
 export * from "./writer";
 export * from "./runtime";

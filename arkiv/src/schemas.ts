@@ -81,7 +81,9 @@ export const SignalEntity = defineSchema("perpetua.signal.v1", {
   outcome: str().indexed().optional(), // win | loss | scratch
   r_multiple: dec().indexed().optional(),
   revealed_at: u64().indexed().optional(),
-  payload: bytes().optional(), // revealed: entry, stop, target, 0G chat ID, Flash order ID, reasoning, salt
+  agent_id: str().indexed().optional(),
+  swarm_address: str().indexed().optional(), // public half of the encrypted Swarm reference holding the payload // platform agent ID (many local agents can share one proposer address)
+  payload: bytes().optional(), // revealed: entry, stop, target, 0G chat ID, Flash order ID, reasoning, salt (sealed: paid data)
 });
 
 export const TradeEntity = defineSchema("perpetua.trade.v1", {
@@ -96,7 +98,9 @@ export const TradeEntity = defineSchema("perpetua.trade.v1", {
   opened_at: u64().indexed(),
   created_at: u64().indexed(),
   pnl_usd: dec().indexed().optional(),
-  payload: bytes(), // size, entry, stop, target, tx hash
+  agent_id: str().indexed().optional(),
+  swarm_address: str().indexed().optional(), // public half of the encrypted Swarm reference holding the payload
+  payload: bytes(), // size, entry, stop, target, tx hash (sealed: paid data)
 });
 
 export const RiskCheckEntity = defineSchema("perpetua.risk-check.v1", {
@@ -142,7 +146,9 @@ export const DecisionLog = defineSchema("perpetua.decision-log.v1", {
   tee_verified: bool().indexed(),
   credit_cost_og: dec().indexed(),
   created_at: u64().indexed(),
-  payload: bytes(), // { riskGateApprovalTx, flashOrderId, teeSignature, reasoningSummary }
+  agent_id: str().indexed().optional(),
+  swarm_address: str().indexed().optional(), // public half of the encrypted Swarm reference holding the payload
+  payload: bytes(), // { riskGateApprovalTx, flashOrderId, teeSignature, reasoningSummary } (sealed: paid data)
 });
 
 export const LeaderboardSnapshot = defineSchema("perpetua.leaderboard-snapshot.v1", {
@@ -159,6 +165,20 @@ export const LeaderboardSnapshot = defineSchema("perpetua.leaderboard-snapshot.v
   unverified: bool().indexed(),
   created_at: u64().indexed(),
   payload: bytes(),
+});
+
+/**
+ * Pointer from Arkiv to a PUBLIC (unencrypted) Swarm bundle, e.g. an agent's track record. One stable entity per
+ * agent and kind (patched on every refresh). Never holds an encrypted reference: those contain their key.
+ */
+export const SwarmBundle = defineSchema("perpetua.swarm-bundle.v1", {
+  uid: str().indexed(),
+  agent_id: str().indexed(),
+  kind: str().indexed(), // track-record
+  swarm_reference: str().indexed(), // 64-hex unencrypted Swarm reference (open via /bzz/<ref>/ on any gateway)
+  records: u64().indexed(),
+  created_at: u64().indexed(),
+  payload: bytes(), // { gateway, bee, batch, schema }
 });
 
 export const EXPIRY_DAYS = {

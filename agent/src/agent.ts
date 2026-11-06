@@ -129,7 +129,7 @@ export class PerpetuaAgent {
     const tc = clients(cfg.treasuryRpc, cfg.treasuryChainId, cfg.zeroG.privateKey);
     this.treasury = new Treasury(tc, cfg.computeTreasury, cfg.agentId);
     this.writer = new ArkivWriter(cfg.agentName, { privateKey: process.env.ARKIV_PRIVATE_KEY as Hex | undefined });
-    this.records = new Records(this.writer, this.vc.account.address);
+    this.records = new Records(this.writer, this.vc.account.address, cfg.agentName);
     this.x = new XPoster(cfg.agentName, cfg.x.userToken);
     if (cfg.flash.mode === "sim" && process.env.FLASH_SPENDER_PRIVATE_KEY) {
       this.sim = new SimSettlement(clients(cfg.vaultRpc, cfg.vaultChainId, process.env.FLASH_SPENDER_PRIVATE_KEY as Hex));
