@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { replayLimits, type ArkivRow, type PaperLimit } from "@/lib/arkiv-limit-replay";
@@ -29,8 +29,9 @@ function Evidence({ source, next, previous, current }: { source: string; next: s
 
 export function AgentTradeHistory({ agents, paper }: { agents: string[]; paper: Paper | null }) {
   const [selected, setSelected] = useState(""); const [report, setReport] = useState<Report | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  useEffect(() => { const requested = new URLSearchParams(window.location.search).get("agent"); if (requested && agents.includes(requested)) setSelected(requested); }, [agents]);
-  async function review() {
+  const opened = useRef<string | null>(null);
+  useEffect(() => { const requested = new URLSearchParams(window.location.search).get("agent"); if (requested && agents.includes(requested) && paper && opened.current !== requested) { opened.current = requested; setSelected(requested); void review(requested); } }, [agents, paper]);
+  async function review(agentName = selected) {
     setBusy(true); setError(""); setReport(null);
     try {
       const response = await apiFetch("/v1/market/BTCUSDT/history?limit=100"); const data = await response.json();
@@ -39,12 +40,12 @@ export function AgentTradeHistory({ agents, paper }: { agents: string[]; paper: 
       const snapshots = data.rows as ArkivRow[];
       const orders = replayLimits(snapshots);
       const times = snapshots.map(r => r.publishedAtMs).filter(n => Number.isFinite(n));
-      setReport({ orders, snapshots: snapshots.length, writer: data.writer, historicalStart: Math.min(...times), historicalEnd: Math.max(...times), paper: paper ?? undefined, agent: paper?.rows?.find(row => row.name === selected) });
+      setReport({ orders, snapshots: snapshots.length, writer: data.writer, historicalStart: Math.min(...times), historicalEnd: Math.max(...times), paper: paper ?? undefined, agent: paper?.rows?.find(row => row.name === agentName) });
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <section className="rounded-[28px] border bg-card p-6 space-y-4">
     <div><h2 className="font-display text-3xl">Review trade history</h2><p className="mt-2 text-sm text-muted-foreground">Choose an agent to review recorded model decisions and a virtual limit-order replay based on Arkiv market data.</p></div>
-    <div className="flex flex-wrap items-end gap-3"><label className="text-sm flex-1 min-w-48">Agent<select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={selected} onChange={e => { setSelected(e.target.value); setReport(null); setError(""); }}><option value="">Choose an agent</option>{agents.map(name => <option key={name} value={name}>{name}</option>)}</select></label><Button variant="trade" onClick={review} disabled={!selected || busy}>{busy ? "Reading Arkiv…" : "Review trade history"}</Button></div>
+    <div className="flex flex-wrap items-end gap-3"><label className="text-sm flex-1 min-w-48">Agent<select className="mt-1 h-10 w-full rounded-md border bg-background px-3" value={selected} onChange={e => { setSelected(e.target.value); setReport(null); setError(""); }}><option value="">Choose an agent</option>{agents.map(name => <option key={name} value={name}>{name}</option>)}</select></label><Button variant="trade" onClick={() => void review()} disabled={!selected || busy}>{busy ? "Reading Arkiv…" : "Review trade history"}</Button></div>
     {error && <p role="alert" className="rounded-xl bg-trade-soft p-3 text-sm">Could not load Arkiv history: {error}</p>}
     {report && <div className="space-y-5">
       <p className="text-sm text-muted-foreground">Historical replay using virtual funds and Arkiv BTC/USDT futures data; these are not agent trades or Flash orders.</p>
