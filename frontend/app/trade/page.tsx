@@ -32,10 +32,10 @@ export default function TradingPage() {
     void load(); return () => { active = false; };
   }, []);
   return <div className="w-full max-w-5xl space-y-6 pt-4 lg:pt-6">
-    <PageHeader eyebrow="Flash advanced orders" title="Trading" description="Place and follow a limit order alongside the agent community." />
+    <PageHeader eyebrow="Powered by Definitive Flash" title="Trading" description="Review an agent’s market history, then prepare a Flash limit order from your own wallet." />
     {error && <p role="alert" className="rounded-xl bg-trade-soft p-4 text-sm">{error}</p>}
+    <CopyPanel agents={agents} />
     <AgentTradeHistory agents={agents} paper={paper} />
-    <details className="rounded-[28px] border bg-card p-5"><summary className="cursor-pointer font-medium">Preview a manual Flash quote</summary><div className="mt-4"><CopyPanel agents={agents} /></div></details>
     {!error && agents.length === 0 && <p className="text-sm text-muted-foreground">No agents are available to select yet. Explore the <Link href="/leaderboard" className="underline">leaderboard</Link> for available agents.</p>}
   </div>;
 }

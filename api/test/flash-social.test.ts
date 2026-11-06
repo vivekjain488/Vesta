@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
-import { encodeFunctionData, erc20Abi, type Address } from "viem";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, erc20Abi, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { flashSocialRouter, validateFlashQuote } from "../src/flash-social";
+import { flashSocialRouter, matchFlashTransfers, validateFlashQuote } from "../src/flash-social";
 
 const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const other = privateKeyToAccount(`0x${"22".repeat(32)}`);
@@ -42,8 +42,13 @@ test("signed orders are session-bound, immutable and submitted at most once", as
   try {
     assert.equal((await post("/quote", { agent: "../x", amount: "5", limitPrice: "1500" })).status, 400);
     assert.equal((await post("/quote", { agent: "Alpha", amount: "NaN", limitPrice: "1500" })).status, 400);
+    process.env.COPY_MAX_USD = "invalid";
+    assert.equal((await post("/quote", { agent: "Alpha", amount: "5", limitPrice: "1500" })).status, 400);
+    delete process.env.COPY_MAX_USD;
     const response = await post("/quote", { agent: "Alpha", amount: "5", limitPrice: "1500" }); assert.equal(response.status, 200);
     const prepared = await response.json() as any;
+    const wrongSignature = await other.signTypedData(typed as any);
+    assert.equal((await post("/order", { id: prepared.id, signature: wrongSignature })).status, 400);
     const signature = await account.signTypedData(typed as any);
     assert.equal((await post("/order", { id: prepared.id, signature }, other.address)).status, 400);
     assert.equal((await post("/order", { id: prepared.id, signature, qty: "1000000" })).status, 200);
@@ -67,4 +72,14 @@ test("read-only quote works without enabling order submission", async () => {
     const order = await original(`http://127.0.0.1:${port}/order`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "anything", signature: "0x00" }) });
     assert.equal(order.status, 503);
   } finally { globalThis.fetch = original; server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test("onchain evidence requires a successful receipt with both wallet transfers", () => {
+  const event = (token: Address, from: Address, to: Address) => ({ address: token, topics: encodeEventTopics({ abi: erc20Abi, eventName: "Transfer", args: { from, to } }), data: encodeAbiParameters([{ type: "uint256" }], [1n]) });
+  const out = event(usdc, account.address, other.address), incoming = event(weth, other.address, account.address);
+  assert.equal(matchFlashTransfers({ status: "success", logs: [out, incoming] }, account.address), true);
+  assert.equal(matchFlashTransfers({ status: "reverted", logs: [out, incoming] }, account.address), false);
+  assert.equal(matchFlashTransfers({ status: "success", logs: [out] }, account.address), false);
+  assert.equal(matchFlashTransfers({ status: "success", logs: [out, incoming] }, other.address), false);
 });

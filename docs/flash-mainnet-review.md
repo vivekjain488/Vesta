@@ -1,0 +1,21 @@
+# Definitive Flash mainnet readiness review
+
+**Conclusion: the Perpetua autonomous contract stack is not ready for mainnet funds.** This is an internal review, not an independent audit. No deployment, order, approval or transaction is required to obtain a read-only Flash quote. A real wallet-signed Flash advanced order can use Flash's existing contracts; deploying Perpetua's vault or wallet is not a prerequisite. Definitive's [EVM overview](https://flash.definitive.fi/docs/evm-overview) describes its quote, approval, signing and submit flow.
+
+## Mainnet blockers
+
+1. `RiskGate.approveOrder` accepts an arbitrary Flash digest when `orderHasher` is unset. The order intent checked by RiskGate is therefore not cryptographically bound to the signed Flash order. Its optional hasher interface also cannot establish a correct binding for the attached bracket as implemented. Do not enable it for live funds without a reviewed, exact typed-data binding for entry and both exit legs, domain, recipient, amounts, expiry and all relevant Flash semantics. Test adversarial mismatches and EIP-1271 end to end.
+2. `AgentWallet.setFlashSpender` changes the spender without revoking existing token allowances to the previous spender. Rotation can leave the old spender authorized. A design must track and revoke all outstanding allowances safely and deal with tokens with nonstandard approval semantics.
+3. The agent's live bracket path is deliberately blocked. It does not complete and verify both entry and exit approvals/permits, does not correctly reconcile partial fills and bracket activation, and treats order submission as an open position. Cancellation and withdrawal must handle pending orders and existing approvals before real funds are used. Flash's [bracket guide](https://flash.definitive.fi/docs/brackets) describes separate signature and funding requirements.
+4. The public deployment script uses one safe-leg address for three vaults, but `AaveV3Adapter` is bound to a single vault. It also depends on a source router and destination treasury before either has been deployed, and does not deploy the hire contracts. See [deployment readiness](deployment-readiness.md).
+5. The hosted worker explicitly removes its execution adapter until per-agent compute funding is enforced. Privy delegated authorization, user revocation, durable execution recovery, per-agent balance limits, and independent review are prerequisites to autonomous operation.
+
+## Current Flash route and track demo
+
+The Trading page provides an EOA-signed Base WETH/USDC limit quote and review flow, with an explicit optional user approval and signature. The service rejects altered quote data and does not expose signing material when live submission is disabled. It only becomes submittable after a Flash API key and an independently verified settlement spender are configured. It does not implement autonomous copying or an attached stop-loss. The recorded diagnostic and deterministic Arkiv replay are labeled virtual and must not be presented as actual Flash orders.
+
+Before placing any real order: independently verify the settlement contract and spender with Definitive; test quote fields, allowance behavior, signature validation and submission against a Base fork and mocked upstream; confirm wallet balances and network; review cancellation, order status and actual onchain receipt. A submitted or accepted order is not a fill. Current local JSONL order history and in-memory quotes are not production durable, and the timeout path can leave submission outcome unknown. Do not auto-retry.
+
+The Flash typed data currently exposed by the API must be inspected carefully: the limit price is a submitted API field and is not among the `FlashOrder` fields the current implementation validates. Confirm with Definitive exactly how limit conditions are enforced and authenticated before using meaningful funds. The API key documented for generic trading does not establish a Perpetua fee destination; an integrator account and validated fee configuration would be needed for monetization.
+
+Track qualification still needs a real advanced-order fill and onchain execution shown in the demo, followed by the required Discord and X video submissions. User-funded mainnet execution must be explicitly initiated and visible. Do not claim simulation results as completed Flash trades.

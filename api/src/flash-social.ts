@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { decodeFunctionData, erc20Abi, getAddress, isAddress, parseUnits, verifyTypedData, type Address, type Hex } from "viem";
+import { createPublicClient, decodeEventLog, decodeFunctionData, erc20Abi, getAddress, http, isAddress, parseUnits, verifyTypedData, type Address, type Hex } from "viem";
 
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address;
 const WETH = "0x4200000000000000000000000000000000000006" as Address;
@@ -28,6 +28,15 @@ export function validateFlashQuote(quote: any, owner: Address, qty: string, spen
   return td;
 }
 
+/** Confirm both sides of the known Base pair from the transaction's own ERC-20 logs. */
+export function matchFlashTransfers(receipt: { status: string; logs: readonly any[] }, owner: Address) {
+  const transfers = receipt.logs.flatMap((log) => {
+    if (!same(log.address, USDC) && !same(log.address, WETH)) return [];
+    try { const event = decodeEventLog({ abi: erc20Abi, eventName: "Transfer", data: log.data, topics: log.topics }); return [{ token: log.address, ...event.args }]; } catch { return []; }
+  });
+  return receipt.status === "success" && transfers.some((t) => same(t.token, USDC) && same(t.from, owner) && t.value > 0n) && transfers.some((t) => same(t.token, WETH) && same(t.to, owner) && t.value > 0n);
+}
+
 export function flashSocialRouter(state: string, ownerOf: (req: any) => Address, knownAgent: (name: string) => boolean) {
   const router = Router();
   const quotes = new Map<string, Quote>();
@@ -36,20 +45,21 @@ export function flashSocialRouter(state: string, ownerOf: (req: any) => Address,
   const spender = process.env.FLASH_SOCIAL_SPENDER ?? "";
   const log = `${state}/flash-social-orders.jsonl`;
   const configured = () => !!key && isAddress(spender) && process.env.FLASH_SOCIAL_ENABLED === "true";
+  const maxUsd = () => { const value = Number(process.env.COPY_MAX_USD ?? 100); if (!Number.isFinite(value) || value <= 0 || value > 10000) throw new Error("Invalid operator order cap"); return value; };
   const call = async (path: string, method = "GET", body?: unknown) => {
     const response = await fetch(`${base}${path}`, { method, headers: { "x-definitive-api-key": key, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
     const data = await response.json() as any;
     if (!response.ok) throw new Error(`Flash ${response.status}: ${data?.error?.message ?? "request failed"}`);
     return data;
   };
-  router.get("/config", (_req, res) => res.json({ enabled: configured(), quoteEnabled: !!key, chain: "Base", chainId: 8453, pair: "WETH / USDC", maxUsd: Number(process.env.COPY_MAX_USD ?? 100) }));
+  router.get("/config", (_req, res) => res.json({ enabled: configured(), quoteEnabled: !!key, chain: "Base", chainId: 8453, pair: "WETH / USDC", maxUsd: (() => { try { return maxUsd(); } catch { return 0; } })() }));
   router.post("/quote", async (req, res) => {
     try {
       if (!key) return void res.status(503).json({ error: "Flash quote service is not configured." });
       const owner = getAddress(ownerOf(req));
       const { agent, amount, limitPrice } = req.body ?? {};
       if (typeof agent !== "string" || !knownAgent(agent)) throw new Error("Select an agent from the leaderboard");
-      if (!decimal(amount, 6) || Number(amount) > Number(process.env.COPY_MAX_USD ?? 100)) throw new Error("Invalid USDC amount or amount exceeds the order cap");
+      if (!decimal(amount, 6) || Number(amount) > maxUsd()) throw new Error("Invalid USDC amount or amount exceeds the order cap");
       if (!decimal(limitPrice, 6)) throw new Error("Enter a valid positive USD limit price");
       const request = { targetChain: "base", contraChain: "base", targetAsset: WETH, contraAsset: USDC, side: "buy", qty: amount, orderType: "limit", limitNotionalPrice: limitPrice, funderAddress: owner, forceMinimalAllowance: true, evmUsePermit2: false };
       const quote = await call("/quote", "POST", request);
@@ -74,7 +84,7 @@ export function flashSocialRouter(state: string, ownerOf: (req: any) => Address,
       const signature = req.body?.signature as Hex;
       if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) throw new Error("A wallet signature is required");
       const typed = JSON.parse(q.typed);
-      if (!await verifyTypedData({ address: owner, ...typed, signature })) throw new Error("Signature does not match the signed-in wallet");
+      if (!await verifyTypedData({ ...typed, address: owner, signature })) throw new Error("Signature does not match the signed-in wallet");
       if (q.used) throw new Error("Quote already submitted");
       q.used = true; // Never retry an ambiguous submission automatically.
       appendFileSync(log, JSON.stringify({ attemptId: req.body.id, owner, agent: q.agent, request: q.request, at: Date.now(), status: "submission_attempted" }) + "\n");
@@ -85,12 +95,22 @@ export function flashSocialRouter(state: string, ownerOf: (req: any) => Address,
       res.json({ orderId: result.orderId, status: "submitted" });
     } catch (e) { res.status(400).json({ error: `${(e as Error).message}. If submission was attempted, check your Flash orders before retrying.` }); }
   });
+  const publicBase = createPublicClient({ transport: http(process.env.FLASH_BASE_RPC_URL ?? "https://mainnet.base.org", { timeout: 8000, retryCount: 0 }) });
+  async function verifyFill(fill: any, orderId: string, owner: Address) {
+    const hash = fill?.transactionId;
+    if (fill?.rootOrderId !== orderId || typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return null;
+    try {
+      const receipt = await publicBase.getTransactionReceipt({ hash: hash as Hex });
+      const matched = matchFlashTransfers(receipt, owner);
+      return { transactionHash: hash, receipt: receipt.status, matchedTransfers: matched, blockNumber: String(receipt.blockNumber) };
+    } catch { return { transactionHash: hash, receipt: "unavailable", matchedTransfers: false }; }
+  }
   router.get("/orders", async (req, res) => {
     try {
       const owner = getAddress(ownerOf(req));
       const rows = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((x) => JSON.parse(x)).filter((x) => same(x.owner, owner)).slice(-50).reverse() : [];
       const completed = new Set(rows.filter((row) => row.orderId).map((row) => row.attemptId));
-      const result = await Promise.all(rows.filter((row) => row.orderId || !completed.has(row.attemptId)).map(async (row) => { if (!row.orderId) return { ...row, flash: null }; try { return { ...row, flash: await call(`/orders/${encodeURIComponent(row.orderId)}?funderAddress=${owner}`) }; } catch { return { ...row, flash: null }; } }));
+      const result = await Promise.all(rows.filter((row) => row.orderId || !completed.has(row.attemptId)).map(async (row) => { if (!row.orderId) return { ...row, flash: null }; try { const flash = await call(`/orders/${encodeURIComponent(row.orderId)}?funderAddress=${owner}`); const evidence = Array.isArray(flash.fills) ? (await Promise.all(flash.fills.slice(0, 10).map((f: any) => verifyFill(f, row.orderId, owner)))).filter(Boolean) : []; return { ...row, flash, evidence }; } catch { return { ...row, flash: null, evidence: [] }; } }));
       res.json(result);
     } catch { res.status(503).json({ error: "Orders are unavailable" }); }
   });
