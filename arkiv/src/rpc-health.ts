@@ -29,7 +29,7 @@ export function healthSummary(entry: Health | undefined, now = Date.now()) {
   return { latest, stale: now - latest.at > 2 * 3600_000, windowHours: 24, sampleCount: recent.length, successfulSamples: successes.length,
     sampledAvailabilityPercent: recent.length ? Math.round(successes.length * 10000 / recent.length) / 100 : null,
     medianLatencyMs: latencies.length ? latencies[Math.floor((latencies.length - 1) / 2)] : null,
-    samples: recent.map(({ at, ok, latencyMs }) => ({ at, ok, latencyMs })).sort((a, b) => a.at - b.at) };
+    samples: recent.map(({ at, ok, latencyMs, outcome, httpStatus }) => ({ at, ok, latencyMs, outcome, httpStatus })).sort((a, b) => a.at - b.at) };
 }
 export async function probeRpc(row: RpcRecord, request = publicRpcRequest): Promise<Probe> {
   const at = Date.now(), start = performance.now(); let httpStatus: number | undefined; let headers: Record<string, string> = {};

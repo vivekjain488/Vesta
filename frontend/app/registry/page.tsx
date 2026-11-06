@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, Loader2, Network, Search, ShieldCheck } from "lucide-react";
-import { RpcMetrics } from "@/components/rpc-metrics";
+import { RpcDetail } from "@/components/rpc-detail";
+import { RpcMetrics, ShadeTip, UptimeStrip } from "@/components/rpc-metrics";
 import { startLiveRpcPolling } from "@/lib/live-rpc-poll";
-import { samplesForDisplay, type RpcSample } from "@/lib/rpc-metrics";
+import { AVAILABILITY_TIP, LATENCY_TIP, availabilityShade, httpShade, latencyShade, samplesForDisplay, type RpcSample } from "@/lib/rpc-metrics";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +34,7 @@ export default function RegistryPage() {
   const [rpcs, setRpcs] = useState<Rpc[]>([]); const [selectedSnapshot, setSelectedSnapshot] = useState("");
   const [liveSamples, setLiveSamples] = useState<Record<string, RpcSample[]>>({}); const [liveStatus, setLiveStatus] = useState("Waiting for samples"); const [graphWindow, setGraphWindow] = useState<"30m" | "24h">("30m");
   const [selectedRpcs, setSelectedRpcs] = useState<string[]>([]); const [checks, setChecks] = useState<Record<string, any>>({}); const [checking, setChecking] = useState<string[]>([]); const activeChain = useRef<number | null>(null); const generation = useRef(0);
-  const [health, setHealth] = useState<Record<string, any>>({}); const [healthUnavailable, setHealthUnavailable] = useState(false); const [rpcAfter, setRpcAfter] = useState<number | null>(null); const [rpcLoading, setRpcLoading] = useState(false);
+  const [health, setHealth] = useState<Record<string, any>>({}); const [healthUnavailable, setHealthUnavailable] = useState(false); const [rpcAfter, setRpcAfter] = useState<number | null>(null); const [rpcLoading, setRpcLoading] = useState(false); const [openRpc, setOpenRpc] = useState<Rpc | null>(null);
   async function search(after?: number, snapshot?: string) {
     setBusy(true); setError("");
     const params = new URLSearchParams({ limit: "25" }); const q = query.trim();
@@ -44,7 +45,7 @@ export default function RegistryPage() {
   }
   useEffect(() => { void search(); }, []);
   async function inspect(chain: Chain) {
-    activeChain.current = chain.chainId; const epoch = ++generation.current; setSelection(chain); setRpcs([]); setSelectedSnapshot(""); setLiveSamples({}); setLiveStatus("Waiting for samples"); setSelectedRpcs([]); setChecks({}); setChecking([]); setHealth({}); setHealthUnavailable(false); setRpcAfter(null); setError(""); setRpcLoading(true);
+    activeChain.current = chain.chainId; const epoch = ++generation.current; setSelection(chain); setRpcs([]); setSelectedSnapshot(""); setLiveSamples({}); setLiveStatus("Waiting for samples"); setSelectedRpcs([]); setChecks({}); setChecking([]); setHealth({}); setHealthUnavailable(false); setRpcAfter(null); setOpenRpc(null); setError(""); setRpcLoading(true);
     requestAnimationFrame(() => scrollToId("registry-rpcs", 24));
     try {
       const [result, metrics] = await Promise.all([read(`/rpcs/${chain.chainId}?snapshot=${page.snapshot}`), read(`/health/${chain.chainId}`).catch(() => null)]);
@@ -234,7 +235,7 @@ export default function RegistryPage() {
           <CardContent className="space-y-4">
             {selection.chainId === 5 && <p className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">Goerli is an older testnet whose core-team support ended; many listed endpoints may no longer work. <a className="underline" href="https://blog.ethereum.org/2023/11/30/goerli-lts-update" target="_blank" rel="noreferrer">Ethereum Foundation update</a>.</p>}
             <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground"><span aria-live="polite" className="font-medium text-foreground">{liveStatus}</span> · Checks run while this tab is visible; many endpoints may take longer per cycle.</p><ToggleGroup type="single" size="sm" value={graphWindow} onValueChange={(v) => { if (v === "30m" || v === "24h") setGraphWindow(v); }} aria-label="Graph time range"><ToggleGroupItem value="30m">30 min</ToggleGroupItem><ToggleGroupItem value="24h">24 hours</ToggleGroupItem></ToggleGroup></div>
-            <p className="text-xs text-muted-foreground">Availability is the share of successful observed checks, not continuous uptime. The graph uses a rolling one-hour sample; gaps mean no data. Select up to 10 RPCs to check again.</p>
+            <p className="text-xs text-muted-foreground">Green is healthy, amber is degraded, and red is poor. Hover a figure for the band. Open a row for sync, archive, batch, and transport detail. Availability counts probes we made, and empty uptime slots mean we have no sample. History is stored on Arkiv.</p>
             {rpcLoading && rpcs.length === 0 ? (
               <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-11 rounded-2xl" />)}</div>
             ) : (
@@ -260,16 +261,20 @@ export default function RegistryPage() {
                     const successes = samples.filter((item) => item.ok).length;
                     const availability = samples.length ? Math.round(successes * 10000 / samples.length) / 100 : null;
                     const status = checking.includes(rpc.endpointHash) ? "Checking…" : check?.message ?? (sample ? sample.httpStatus === 401 ? "Authentication required" : sample.httpStatus === 403 ? "Access denied" : sample.outcome.replaceAll("_", " ") : rpc.requiresKey || rpc.eligibilityReason === "credentials_in_url" ? "Key required" : !rpc.executionEligible ? rpc.eligibilityReason.replaceAll("_", " ") : healthUnavailable ? "Health data unavailable" : "No sample yet");
-                    return <TableRow key={rpc.entityKey}>
-                      <TableCell><input type="checkbox" aria-label={`Select ${rpc.endpoint}`} checked={selectedRpcs.includes(rpc.endpointHash)} disabled={!selectedRpcs.includes(rpc.endpointHash) && selectedRpcs.length >= 10} onChange={(event) => selectRpc(rpc.endpointHash, event.target.checked)} /></TableCell>
+                    const latency = latencyShade(sample?.latencyMs, sample?.ok !== false && Boolean(sample));
+                    const uptime = availabilityShade(availability);
+                    const http = httpShade(sample?.httpStatus);
+                    const measuredAt = Date.now();
+                    return <TableRow key={rpc.entityKey} className="cursor-pointer" data-state={openRpc?.endpointHash === rpc.endpointHash ? "selected" : undefined} onClick={() => setOpenRpc(rpc)}>
+                      <TableCell onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Select ${rpc.endpoint}`} checked={selectedRpcs.includes(rpc.endpointHash)} disabled={!selectedRpcs.includes(rpc.endpointHash) && selectedRpcs.length >= 10} onChange={(event) => selectRpc(rpc.endpointHash, event.target.checked)} /></TableCell>
                       <TableCell className="max-w-sm min-w-48 font-mono text-xs break-all whitespace-normal">{rpc.endpoint}</TableCell>
                       <TableCell><Badge variant="secondary" size="micro">{rpc.transport}</Badge></TableCell>
                       <TableCell><Badge variant={rpc.requiresKey || rpc.eligibilityReason === "credentials_in_url" ? "trade" : "secondary"}>{rpc.requiresKey || rpc.eligibilityReason === "credentials_in_url" ? "Key required" : sample?.httpStatus === 401 ? "Authentication required" : sample?.httpStatus === 403 ? "Access denied" : "No key declared"}</Badge></TableCell>
                       <TableCell className={cn("min-w-36 text-sm whitespace-normal", sample?.ok ? "text-profit" : "text-muted-foreground")}><span>{status}</span>{sample && <p className="mt-1 text-xs text-muted-foreground">{new Date(sample.at).toLocaleString()}{!check?.sample && m?.stale ? " · stale" : ""}</p>}</TableCell>
-                      <TableCell className="font-mono text-xs">{sample?.httpStatus ?? "—"}</TableCell>
-                      <TableCell className="text-xs">{sample ? `${sample.latencyMs} ms${sample.ok ? "" : " (failed)"}` : "—"}</TableCell>
-                      <TableCell className="min-w-32 text-xs">{availability === null ? "No samples" : <>{availability}%<p className="mt-1 text-muted-foreground">{successes}/{samples.length} checks</p></>}</TableCell>
-                      <TableCell><RpcMetrics samples={samples} now={Date.now()} windowMs={graphWindow === "30m" ? 30 * 60_000 : 24 * 3600_000} /></TableCell>
+                      <TableCell className="font-mono text-xs">{sample?.httpStatus != null ? <ShadeTip color={http.color} tip={`${http.label}. ${sample.httpStatus} is the HTTP status of the latest probe.`}>{sample.httpStatus}</ShadeTip> : "—"}</TableCell>
+                      <TableCell className="text-xs">{sample ? <ShadeTip color={latency.color} tip={`${latency.label}: ${sample.latencyMs} ms${sample.ok ? "" : ", and the probe failed"}. ${LATENCY_TIP}`}>{sample.latencyMs} ms{sample.ok ? "" : " (failed)"}</ShadeTip> : "—"}</TableCell>
+                      <TableCell className="min-w-40 text-xs">{availability === null ? "No samples" : <div className="space-y-1.5"><ShadeTip color={uptime.color} tip={`${uptime.label}: ${availability}% from ${successes}/${samples.length} checks. ${AVAILABILITY_TIP}`}>{availability}%</ShadeTip><UptimeStrip samples={samples} now={measuredAt} /><p className="text-muted-foreground">{successes}/{samples.length} checks</p></div>}</TableCell>
+                      <TableCell><RpcMetrics samples={samples} now={measuredAt} windowMs={graphWindow === "30m" ? 30 * 60_000 : 24 * 3600_000} /></TableCell>
                     </TableRow>;
                   })}
                 </TableBody>
@@ -284,6 +289,8 @@ export default function RegistryPage() {
           </CardContent>
         </Card>
       )}
+
+      <RpcDetail rpc={openRpc} chain={selection} snapshot={selectedSnapshot} samples={openRpc ? samplesForDisplay([...(health[`${selection?.chainId}:${openRpc.endpointHash}`]?.samples ?? []), ...(liveSamples[openRpc.endpointHash] ?? [])], checks[openRpc.endpointHash]?.sample) : []} now={Date.now()} onClose={() => setOpenRpc(null)} />
 
       {page && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

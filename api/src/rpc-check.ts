@@ -1,5 +1,10 @@
 import { registryRpcs } from "@perpetua/arkiv";
 import { probeRpc, type Probe } from "../../arkiv/src/rpc-health";
+import { RpcHealthPublisher } from "../../arkiv/src/rpc-health-arkiv";
+
+/** Manual checks are stored on Arkiv too, so the history (and availability) includes them. */
+export const manualHealthPublisher = new RpcHealthPublisher("api");
+setInterval(() => void manualHealthPublisher.flush({ minIntervalMs: 60_000, minBatch: 1 }), 60_000).unref();
 import type { RpcRecord } from "../../arkiv/src/registry-data";
 
 const cache = new Map<string, { until: number; result: Probe }>();
@@ -28,6 +33,8 @@ async function one(row: RpcRecord): Promise<{ sample?: Probe; message?: string; 
   try {
     const sample = await task;
     cache.set(key, { until: Date.now() + 60_000, result: sample });
+    manualHealthPublisher.enqueue(row.chainId, row.endpointHash, sample, "manual");
+    void manualHealthPublisher.flush({ minIntervalMs: 30_000, minBatch: 8 });
     if (sample.outcome === "rate_limited") {
       const raw = sample.headers["retry-after"], seconds = raw && /^\d+$/.test(raw) ? Number(raw) : 0, date = raw ? Date.parse(raw) : NaN;
       const wait = seconds ? seconds * 1000 : Number.isFinite(date) ? date - Date.now() : 300_000;
@@ -38,16 +45,21 @@ async function one(row: RpcRecord): Promise<{ sample?: Probe; message?: string; 
     return { sample };
   } finally { running--; inflight.delete(key); }
 }
-/** Only check verified records from the chosen completed Arkiv snapshot, never a caller-supplied URL. */
-export async function checkSelectedRpcs(chainId: number, snapshot: string, hashes: string[]) {
+/** Page verified records from the chosen completed Arkiv snapshot, never a caller-supplied URL. */
+export async function loadChainRpcs(chainId: number, snapshot: string, until?: (rows: RpcRecord[]) => boolean) {
   if (!Number.isSafeInteger(chainId) || chainId < 1 || !/^[a-f0-9]{64}$/.test(snapshot)) throw new CheckError("Invalid chain or snapshot.");
-  validateRpcHashes(hashes);
   let after: number | undefined; const records: RpcRecord[] = [];
   do {
     const page = await registryRpcs(chainId, { snapshot, after, limit: 100 });
     records.push(...page.rows); after = page.nextAfter ?? undefined;
     if (records.length > 2000) throw new CheckError("Too many RPCs on this chain.");
-  } while (after !== undefined && !hashes.every((hash) => records.some((r) => r.endpointHash === hash)));
+  } while (after !== undefined && !until?.(records));
+  return records;
+}
+/** Only check verified records from the chosen completed Arkiv snapshot, never a caller-supplied URL. */
+export async function checkSelectedRpcs(chainId: number, snapshot: string, hashes: string[]) {
+  validateRpcHashes(hashes);
+  const records = await loadChainRpcs(chainId, snapshot, (rows) => hashes.every((hash) => rows.some((r) => r.endpointHash === hash)));
   const selected = hashes.map((hash) => records.find((r) => r.endpointHash === hash));
   if (selected.some((r) => !r)) throw new CheckError("A selected RPC is not in this chain and snapshot.");
   const results: Record<string, Awaited<ReturnType<typeof one>>> = {};

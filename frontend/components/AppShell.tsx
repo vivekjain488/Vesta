@@ -34,6 +34,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
     );
 
+  // The chain registry is public infrastructure. Signed-out visitors can read it; every other route, and /welcome, stays on the landing page.
+  if (!wallet.address && pathname.startsWith("/registry"))
+    return <main className="mx-auto w-full max-w-[1440px] px-4 pt-4 pb-12 sm:px-6 lg:px-8">{children}</main>;
+
   // Signed-out visitors (any route) and /welcome (anyone) see the full-bleed landing page.
   if (!wallet.address || pathname === "/welcome")
     return (

@@ -4,8 +4,10 @@ import { custom, type Transport } from "viem";
 import { classifyEndpoint, publicAddress } from "./registry-data";
 import { registryChain, registryCreator } from "./registry-queries";
 
+export type TlsNote = { protocol: string | null; authorized: boolean };
+
 /** DNS is checked and pinned to the TLS request, preventing redirect/DNS-rebinding SSRF during probes. */
-export async function publicRpcRequest(endpoint: string, body: unknown, timeoutMs = 7000, onResponse?: (status: number, headers: Record<string, string>) => void): Promise<any> {
+export async function publicRpcRequest(endpoint: string, body: unknown, timeoutMs = 7000, onResponse?: (status: number, headers: Record<string, string>) => void, onTls?: (tls: TlsNote) => void): Promise<any> {
   if (!classifyEndpoint(endpoint).eligible) throw new Error("RPC endpoint is not eligible for public execution");
   const url = new URL(endpoint), host = url.hostname.replace(/^\[|\]$/g, "");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -18,6 +20,11 @@ export async function publicRpcRequest(endpoint: string, body: unknown, timeoutM
       const allowed = ["retry-after", "ratelimit-limit", "ratelimit-remaining", "ratelimit-reset", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"];
       const headers: Record<string, string> = {};
       for (const name of allowed) { const value = response.headers?.[name]; if (typeof value === "string" && /^[\w.,;:= -]{1,128}$/.test(value)) headers[name] = value; }
+      const socket = response.socket as import("node:tls").TLSSocket | undefined;
+      if (socket && typeof socket.getProtocol === "function") {
+        const protocol = socket.getProtocol();
+        onTls?.({ protocol: typeof protocol === "string" ? protocol : null, authorized: socket.authorized === true });
+      }
       onResponse?.(response.statusCode ?? 0, headers);
       if (response.statusCode !== 200) { response.resume(); reject(new Error(`RPC HTTP ${response.statusCode}`)); return; }
       const parts: Buffer[] = []; let size = 0;
