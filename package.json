@@ -23,7 +23,13 @@
     "atlas:import": "pnpm --filter @perpetua/arkiv import",
     "demo": "tsx scripts/demo.ts",
     "deploy:local": "bash scripts/deploy-local.sh",
-    "setup:contracts": "bash scripts/setup-contracts.sh"
+    "setup:contracts": "bash scripts/setup-contracts.sh",
+    "market": "tsx arkiv/src/market-service.ts",
+    "market:query": "tsx scripts/query-market.ts",
+    "market:service": "tsx scripts/market-service-manager.ts",
+    "api:sim": "FLASH_MODE=sim ZG_MODE=sim CANDLE_SOURCE=synthetic pnpm --filter @perpetua/api start",
+    "check:local": "tsx scripts/local-product-smoke.ts",
+    "funding:preview": "tsx scripts/preview-compute-funding.ts"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

@@ -53,6 +53,8 @@ export class ZeroGBrain implements Brain {
       minLedgerOg: number;
       maxTokensPerHour: number;
       maxTokensPerDay: number;
+      /** Hosted workers reserve bootstrap capital before any on-chain ledger/provider funding. */
+      initializeLedger?: boolean;
     },
   ) {
     this.cap = new SpendCap(cfg.maxTokensPerHour, cfg.maxTokensPerDay);
@@ -74,10 +76,11 @@ export class ZeroGBrain implements Brain {
     } catch (error) {
       // A transient RPC failure is not permission to create/fund another account.
       if (!/Account does not exist/i.test((error as Error).message)) throw error;
+      if (this.cfg.initializeLedger === false) return this;
       await this.broker.ledger.addLedger(this.cfg.minLedgerOg);
     }
     // SDK signer checks may create/fund provider sub-accounts. The ledger must exist first.
-    for (const p of providers) {
+    for (const p of this.cfg.initializeLedger === false ? [] : providers) {
       const status = await this.broker.inference.checkProviderSignerStatus(p);
       if (!status.isAcknowledged) throw new Error(`0G provider ${p} signer is not acknowledged`);
     }
@@ -89,8 +92,13 @@ export class ZeroGBrain implements Brain {
   }
 
   async ledgerOg() {
-    const l = await this.broker.ledger.getLedger();
-    return Number(l.availableBalance ?? l[1]) / OG;
+    try {
+      const l = await this.broker.ledger.getLedger();
+      return Number(l.availableBalance ?? l[1]) / OG;
+    } catch (error) {
+      if (/Account does not exist/i.test((error as Error).message)) return 0;
+      throw error;
+    }
   }
 
   async depositOg(amount: number) {

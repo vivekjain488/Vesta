@@ -38,3 +38,12 @@ The `atlas-uid:` prefix matters. Without it, the 4 hash bytes of a function sign
 \* Set at reveal or close, never at commit. These are declared `.optional()`.
 
 **Commit-reveal.** `commit_hash = keccak256(JSON(hidden fields + salt))`. At reveal the payload publishes the hidden fields and the salt, so anyone can recompute the hash.
+
+## Shared market mirror
+
+| Schema | Indexed fields | Payload | Retention |
+|---|---|---|---|
+| `perpetua.market-observation.v1` | UID, latest/snapshot type, venue, market type, symbol, sampling bucket, source/observation/publication timestamps, bid/ask, mark/index, funding, open interest, content hash | JSON snapshot including top 20 book levels, per-component exchange timestamps and provenance | latest: 1 day renewed; sampled history: 7 days by default |
+| `perpetua.market-candles.v1` | UID, venue, symbol, interval, observed timestamp, last closed timestamp, content hash | gzip-compressed JSON with 400 closed 4h OHLCV bars | 1 day renewed |
+
+Market reads filter `ownedBy(ARKIV_MARKET_WRITER_ADDRESS)`. A latest quote is stale if any source component exceeds the allowed age. Hashes cover the decoded JSON. `latest` and candle-window UIDs are stable; historical UIDs include the sampling bucket. See [the running service](../docs/market-mirror.md) for cadence, recovery and query commands.

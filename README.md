@@ -20,6 +20,10 @@ Perpetua is an on-chain principal-protected note (Endowment-CPPI) managed by an 
 
 > Hackathon prototype. Not financial advice. See [Known trade-offs](#known-trade-offs-and-open-risks-stated-not-hidden).
 
+## Shared live market data on Arkiv
+
+`pnpm market` continuously mirrors BTC/ETH/LINK USDT futures quotes, top-20 books, mark/index prices, funding, open interest and closed 4h candles into Arkiv. Collection targets 5 seconds; publication targets 15 seconds with 7-day sampled history. `pnpm market:query BTCUSDT` reads a fresh, owner-filtered observation back from Arkiv. A macOS service is installed locally for automatic restart; it runs while the host is awake. See [service setup, health, schemas and recovery](docs/market-mirror.md).
+
 ## Configurable agents and hosted runtime
 
 Open **http://localhost:3000** and sign in with MetaMask. The dashboard lists only your agents; the leaderboard lists agent names and cumulative profits. Create multiple agents, select a strategy and limits, then add local test funds and deposit through MetaMask. The backend deploys isolated local contracts and keeps spot agents running without the browser open.
@@ -97,6 +101,10 @@ Local trading and inference use synthetic data, mock tokens and simulated AI. Th
 
 ---
 
+## Running the current app
+
+See the [local walkthrough and integration status](docs/local-walkthrough.md) for exact UI steps, simulation commands, live Arkiv queries, restart behavior and remaining live integrations. `pnpm api:sim` runs the complete local wallet/trade/withdrawal exercise; it does not change saved live credentials. `pnpm check:local` verifies that flow against the running simulation API.
+
 ## Quickstart (local, no keys needed)
 
 Requires Node ≥ 22.10, pnpm 10, and Foundry (`brew install foundry`).
@@ -104,7 +112,7 @@ Requires Node ≥ 22.10, pnpm 10, and Foundry (`brew install foundry`).
 ```bash
 pnpm install
 pnpm setup:contracts          # forge-std v1.9.6 + OpenZeppelin v5.1.0 into contracts/lib, forge build
-pnpm test:contracts           # 45 tests
+pnpm test:contracts           # contract tests
 pnpm --filter @perpetua/core test
 
 anvil                          # terminal 1

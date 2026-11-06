@@ -1,4 +1,4 @@
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Address, Hex } from "viem";
@@ -19,6 +19,10 @@ const env = (k: string, d?: string) => {
 };
 
 const repoRoot = resolve(new URL("../..", import.meta.url).pathname);
+// Workspace scripts run with their package as cwd; always resolve the shared configuration from the repo.
+// Explicit process overrides (e.g. api:sim) retain precedence over saved configuration.
+loadEnv({ path: resolve(repoRoot, ".env") });
+if (process.env.DEPLOYMENT_FILE) process.env.DEPLOYMENT_FILE = resolve(repoRoot, process.env.DEPLOYMENT_FILE);
 process.env.PERPETUA_STATE_DIR ??= resolve(repoRoot, ".perpetua");
 
 export function loadDeployment(): any {
@@ -99,7 +103,7 @@ export function loadConfig() {
 
     x: { userToken: process.env.X_USER_ACCESS_TOKEN ?? "", arenaUrl: env("ARENA_URL", "http://localhost:3000") },
     tickSeconds: Number(env("TICK_SECONDS", "60")),
-    candleSource: env("CANDLE_SOURCE", "kraken") as "kraken" | "binance" | "synthetic",
+    candleSource: env("CANDLE_SOURCE", "kraken") as "kraken" | "binance" | "synthetic" | "arkiv",
   };
 }
 

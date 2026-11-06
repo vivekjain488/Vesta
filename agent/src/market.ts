@@ -1,9 +1,11 @@
 /** Free public market data: 4h OHLCV (Kraken, Binance fallback), perp funding (Binance), headlines (RSS). */
 import type { Bar } from "@perpetua/core";
+import { marketCandles } from "@perpetua/arkiv";
 
-export async function fetchBars4h(opts: { krakenPair: string; binanceSymbol: string; source?: "kraken" | "binance" | "synthetic"; limit?: number }): Promise<Bar[]> {
+export async function fetchBars4h(opts: { krakenPair: string; binanceSymbol: string; source?: "kraken" | "binance" | "synthetic" | "arkiv"; limit?: number }): Promise<Bar[]> {
   const limit = opts.limit ?? 400;
   const closed = (bars: Bar[]) => bars.filter((b) => b.t + 14400 <= Math.floor(Date.now() / 1000)).slice(-limit);
+  if (opts.source === "arkiv") return (await marketCandles(opts.binanceSymbol, Math.min(limit, 400))).bars;
   // deterministic: the same series (and last price) whatever `limit` the caller asks for
   if (opts.source === "synthetic") return syntheticBars(Math.max(limit, 400)).slice(-limit);
   if (opts.source !== "binance") {

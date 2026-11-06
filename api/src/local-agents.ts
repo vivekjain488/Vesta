@@ -17,7 +17,8 @@ export async function deployLocalAgent(platform: Platform, definition: AgentDefi
     const admin = await localAdmin(platform); const dep = platform.deployment();
     if (dep[definition.id]?.vault) return dep[definition.id];
     const receipt = async (hash: Hex) => { const r = await admin.pub.waitForTransactionReceipt({ hash }); if (r.status !== "success") throw new Error("Deployment transaction reverted"); return r; };
-    const deploy = async (name: string, args: any[]) => { const a = JSON.parse(readFileSync(resolve(`contracts/out/${name}.sol/${name}.json`), "utf8")); const r = await receipt(await admin.wallet.deployContract({ abi: a.abi, bytecode: a.bytecode.object as Hex, args, account: admin.account, chain: admin.chain })); if (!r.contractAddress) throw new Error("No contract deployed"); return r.contractAddress; };
+    const artifacts = resolve(new URL("../..", import.meta.url).pathname, "contracts/out");
+    const deploy = async (name: string, args: any[]) => { const a = JSON.parse(readFileSync(resolve(artifacts, `${name}.sol/${name}.json`), "utf8")); const r = await receipt(await admin.wallet.deployContract({ abi: a.abi, bytecode: a.bytecode.object as Hex, args, account: admin.account, chain: admin.chain })); if (!r.contractAddress) throw new Error("No contract deployed"); return r.contractAddress; };
     const send = async (address: Address, abi: any, functionName: string, args: any[]) => receipt(await admin.wallet.writeContract({ address, abi, functionName, args, account: admin.account, chain: admin.chain }));
     const id = keccak256(toBytes(definition.id)); const proposer = privateKeyToAccount(process.env.PROPOSER_PRIVATE_KEY as Hex).address;
     const priceSigner = privateKeyToAccount(process.env.PRICE_SIGNER_PRIVATE_KEY as Hex).address;

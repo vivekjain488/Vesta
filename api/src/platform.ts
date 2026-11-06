@@ -22,6 +22,21 @@ export class Platform {
     const path = resolve(this.state, `agent-${id}.json`);
     return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
   }
+  computeFundingOf(id: string) {
+    if (!/^[A-Za-z0-9_-]{1,60}$/.test(id)) throw new Error("Invalid agent");
+    const file = resolve(this.state, `compute-funding-${id}.json`);
+    const runtime = this.stateOf(id);
+    const journal = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+    return {
+      initialAllocation: { percent: 20, maximumUsd: 5 },
+      profitRefillPercent: 20,
+      status: journal?.status ?? runtime?.computeFunding ?? { action: "wait", reason: "funding_not_started", allowNewTrades: false },
+      bootstrapComplete: journal?.bootstrapComplete ?? false,
+      pending: journal?.intent ? { id: journal.intent.id, source: journal.intent.source, amountUsdMicros: journal.intent.amountUsd, minimumComputeWei: journal.intent.minimumComputeWei, createdAtMs: journal.intent.createdAtMs } : null,
+      progress: journal?.progress ?? null,
+      history: journal?.reservations ?? [],
+    };
+  }
   async history(id: string) {
     const a = this.agent(id);
     const logs = (await Promise.all([[a.vault, perpetuaVaultAbi], [a.wallet, agentWalletAbi], [a.riskGate, riskGateAbi]].map(([address, abi]) => this.pub.getContractEvents({ address: address as Address, abi: abi as any, fromBlock: 0n })))).flat();

@@ -43,6 +43,7 @@ import { SimSettlement } from "./simSettlement";
 import { XPoster } from "./social";
 import { SimBrain, ZeroGBrain, type Brain, type BrainResult } from "./zerog";
 import { ZeroGRouterBrain, routerCapitalPolicy } from "./zerog-router";
+import { createComputeFundingController, type ComputeFundingController } from "./compute-funding";
 
 const REVEAL_DELAY_S = 15 * 60;
 const stateDir = () => process.env.PERPETUA_STATE_DIR ?? ".perpetua";
@@ -93,6 +94,7 @@ interface AgentState {
   lastRunwayH?: number | null;
   sleeping?: boolean;
   computeSpend?: { day: string; og: number; unsettled: boolean };
+  computeFunding?: { action: string; reason: string; updatedAtMs: number; allowNewTrades: boolean };
 }
 
 export class PerpetuaAgent {
@@ -110,6 +112,7 @@ export class PerpetuaAgent {
   private bars = new Map<string, Bar[]>();
   private priceCache = new Map<string, number>();
   private readonly stateFile: string;
+  private computeFunding?: ComputeFundingController;
 
   constructor(
     readonly cfg: Config,
@@ -143,14 +146,16 @@ export class PerpetuaAgent {
       cfg.zeroG.mode === "router"
         ? new ZeroGRouterBrain({ ...cfg.zeroG, stateFile: `${stateDir()}/0g-router-${cfg.agentName}-budget.json` })
         : cfg.zeroG.mode === "live"
-        ? await new ZeroGBrain({ ...cfg.zeroG }).init()
+        ? await new ZeroGBrain({ ...cfg.zeroG, initializeLedger: false }).init()
         : new SimBrain({
             startOg: cfg.zeroG.simStartOg,
             costOg: { large: cfg.zeroG.costPerCallUsd.large / cfg.zeroG.ogPriceUsd, small: cfg.zeroG.costPerCallUsd.small / cfg.zeroG.ogPriceUsd },
             maxTokensPerHour: cfg.zeroG.maxTokensPerHour,
             maxTokensPerDay: cfg.zeroG.maxTokensPerDay,
           });
-    return new PerpetuaAgent(cfg, brain);
+    const agent = new PerpetuaAgent(cfg, brain);
+    if (brain.mode === "live") agent.computeFunding = await createComputeFundingController(cfg);
+    return agent;
   }
 
   private save() {
@@ -193,6 +198,8 @@ export class PerpetuaAgent {
 
   /** Feeding: CCIP-delivered 0G sits in ComputeTreasury; pull it (within the daily cap) and fund the ledger. */
   async feed(): Promise<number> {
+    // Live funding belongs to the durable controller; never drain a treasury outside its reservation.
+    if (this.brain.mode === "live") return 0;
     if (this.brain.fundingMode === "router") return 0; // Direct-ledger funds cannot be deposited into Router.
     let bal: bigint;
     try {
@@ -216,7 +223,7 @@ export class PerpetuaAgent {
     try {
       bars = this.cfg.candleSource === "synthetic" ? syntheticBars(400, a.symbol === "BTC" ? 65000 : a.symbol === "ETH" ? 2500 : 15) : await fetchBars4h({ ...a, source: this.cfg.candleSource, limit: 400 });
     } catch (e) {
-      if (this.cfg.flash.mode === "live") throw e;
+      if (this.cfg.flash.mode === "live" || this.cfg.candleSource === "arkiv") throw e;
       bars = syntheticBars(400);
     }
     this.bars.set(a.symbol, bars);
@@ -255,6 +262,12 @@ export class PerpetuaAgent {
     const hoursSince = (t0 - (this.state.lastThought || t0)) / 3600;
 
     // 1. metabolism
+    if (this.brain.mode === "live") {
+      this.state.computeFunding = this.computeFunding ? await this.computeFunding.tick() : {
+        action: "wait", reason: "compute_funding_adapter_required", updatedAtMs: Date.now(), allowNewTrades: false,
+      };
+      this.save();
+    }
     await this.feed();
     if (this.brain instanceof SimBrain) this.brain.burn(this.state.burnOgPerHour * this.cfg.zeroG.burnAcceleration * (this.cfg.tickSeconds / 3600));
     const rw = await this.runway();
@@ -288,7 +301,7 @@ export class PerpetuaAgent {
       if (assetWake.wake) wake = assetWake;
       if (volSpike && !flags.halfSize) await this.gate.setRuntimeFlags(flags.halfSize, true).catch(() => {});
       // Refresh the mandate between assets so each entry uses the remaining shared exposure budget.
-      if (assetWake.wake && !rw.policy.managesPositionsOnly) await this.think(a, bars, rw.policy, await this.gate.mandate(), await this.gate.flags());
+      if (assetWake.wake && !rw.policy.managesPositionsOnly && (this.brain.mode === "sim" || this.state.computeFunding?.allowNewTrades === true)) await this.think(a, bars, rw.policy, await this.gate.mandate(), await this.gate.flags());
     }
 
     // 5. income rollup + heartbeat
