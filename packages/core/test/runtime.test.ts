@@ -7,6 +7,7 @@ import { RuntimeStore } from "../../../agent/src/runtime/store";
 import { MinuteHarness, parseTurn } from "../../../agent/src/runtime/run";
 import { RuntimeService } from "../../../agent/src/runtime/service";
 import { RuntimeTools, observation } from "../../../agent/src/runtime/tools";
+import { strategyContext } from "../../../agent/src/runtime/strategy-context";
 import { AuditPublisher, type AuditPort } from "../../../agent/src/runtime/publisher";
 import { liveMarketPort } from "../../../agent/src/runtime/ports";
 import type { Brain, BrainResult, ChatMessage } from "../../../agent/src/zerog";
@@ -96,6 +97,24 @@ describe("durable hosted identities and scheduling", () => {
 });
 
 describe("live state, historical context and bounded reasoning", () => {
+  it("derives different strategy-specific context from the same closed market data", () => {
+    const now = 60_000 * 100, bars = Array.from({length: 15}, (_, i) => ({ t: now - (15-i)*60_000, o: 100+i, h: 102+i, l: 99+i, c: 101+i }));
+    const momentum = strategyContext("spot-momentum", bars, now), range = strategyContext("spot-range", bars, now), dca = strategyContext("spot-dca", bars, now);
+    expect(momentum).toMatchObject({ available: true, focus: "momentum and breakout", priorRangeHigh: expect.any(Number) });
+    expect(range).toMatchObject({ available: true, focus: "range and mean reversion", rangePositionPct: expect.any(Number) });
+    expect(dca).toMatchObject({ available: true, focus: "accumulation and pullback", pullbackFromPriorHighPct: expect.any(Number) });
+    expect(strategyContext("spot-momentum", [...bars.slice(0,-1), {...bars.at(-1), t:now}], now)).toMatchObject({ available: false });
+  });
+  it("provides the selected strategy's 4h setup to the model in a hosted run", async () => {
+    const f = fixture(), initial = f.a(), config = templateConfig("spot-breakout"); config.symbols = ["BTC"];
+    const a = f.store.activate({ ...initial, revision: 2, config, configHash: configHash(config) }, f.now());
+    await new MinuteHarness(f.store, f.ports, { now: f.now }).run(a, f.claim(a));
+    expect(f.store.runs(a.id)[0].status).toBe("completed");
+    const messages = JSON.stringify(f.messages[0]);
+    expect(messages).toContain("strategySetup");
+    expect(messages).toContain('breakout');
+    expect(messages).toContain("previousTenBarLow");
+  });
   it("enforces different profile order limits without forcing a decision", () => {
     const f = fixture(), base = f.a();
     const cautious = { ...base, config: applyRiskProfile(base.config, "cautious") };
@@ -119,6 +138,25 @@ describe("live state, historical context and bounded reasoning", () => {
     const executionAgent = f.a("execute-agent", "execute");
     await new MinuteHarness(f.store, f.ports, { now: f.now }).run(executionAgent, f.claim(executionAgent));
     expect(f.store.runs(executionAgent.id)[0].error).toContain("testing_inference_cannot_execute");
+  });
+  it("uses one bounded compact inference for paper analysis and retains normal risk limits", async () => {
+    const f = fixture(), a = f.a(), send = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)); expect(request.max_tokens).toBe(400);
+      expect(request.messages[0].content).toContain("Paper trading only");
+      expect(request.messages[1].content).toContain("Instructions for agent-1");
+      const context = JSON.parse(request.messages[1].content);
+      return new Response(JSON.stringify({ id: "or-compact", choices: [{ message: { content: JSON.stringify({ decision: { ...hold(), evidenceRefs: [context.observations[1].evidenceId] } }) }, finish_reason: "stop" }] }));
+    });
+    f.ports.inference = async () => new OpenRouterInference({ apiKey: "test", modelSmall: "test/model", maxTokensPerHour: 100000, maxTokensPerDay: 100000 }, send as typeof fetch);
+    await new MinuteHarness(f.store, f.ports, { now: f.now, compactPaper: true }).run(a, f.claim(a));
+    expect(send).toHaveBeenCalledTimes(1); expect(f.store.runs(a.id)[0].status).toBe("completed");
+    expect(f.store.events(a.id).some((event) => event.kind === "research_workflow" && (event.payload as any).mode === "compact_paper")).toBe(true);
+    expect(f.store.actions()).toHaveLength(0);
+  });
+  it("does not allow compact paper mode on an execution agent or a non-testing provider", async () => {
+    const f = fixture(), a = f.a();
+    await new MinuteHarness(f.store, f.ports, { now: f.now, compactPaper: true }).run(a, f.claim(a));
+    expect(f.store.runs(a.id)[0].error).toBe("compact_paper_requires_testing_analysis");
   });
   it("journals the research stages and passes their reports to the final decision", async () => {
     const f = fixture(), a = f.a();
@@ -216,11 +254,11 @@ describe("live state, historical context and bounded reasoning", () => {
   });
   it("coalesces concurrent live reads while a later request fetches again", async () => {
     const now = Date.now(); let release!: () => void;
-    const send = vi.fn(async () => { await new Promise<void>((resolve) => { release = resolve; }); return new Response(JSON.stringify({ symbol: "BTCUSDT", bidPrice: "100", askPrice: "101", lastPrice: "100.5", closeTime: now })); });
+    const send = vi.fn(async (url: string) => { if (url.includes("klines")) return new Response("[]"); await new Promise<void>((resolve) => { release = resolve; }); return new Response(JSON.stringify({ symbol: "BTCUSDT", bidPrice: "100", askPrice: "101", lastPrice: "100.5", closeTime: now })); });
     const live = liveMarketPort(send as typeof fetch, () => now), signal = new AbortController().signal;
     const a = live("BTC", "spot", signal), b = live("BTC", "spot", signal); release();
-    await Promise.all([a,b]); expect(send).toHaveBeenCalledTimes(1);
-    const c = live("BTC", "spot", signal); release(); await c; expect(send).toHaveBeenCalledTimes(2);
+    await Promise.all([a,b]); expect(send).toHaveBeenCalledTimes(2);
+    const c = live("BTC", "spot", signal); release(); await c; expect(send).toHaveBeenCalledTimes(4);
   });
 });
 

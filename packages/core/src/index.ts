@@ -1,6 +1,7 @@
 export * from "./cppi";
 export * from "./indicators";
 export * from "./strategy";
+export * from "./strategy-setups";
 export * from "./router";
 export * from "./leaderboard";
 export * from "./economics";

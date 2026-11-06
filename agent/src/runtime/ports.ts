@@ -19,11 +19,18 @@ export function liveMarketPort(send: typeof fetch = fetch, now = Date.now) {
           const s = await collectSnapshot(`${symbol}USDT`);
           return observation("live_feed", "binance-usdm", { marketType: market, markPrice: s.markPrice, indexPrice: s.indexPrice, fundingRate: s.fundingRate, openInterest: s.openInterest, bid: s.book.bids[0], ask: s.book.asks[0], bookAtMs: s.book.atMs, openInterestAtMs: s.openInterestAtMs }, Math.min(s.sourceAtMs, s.book.atMs, s.openInterestAtMs), now(), symbol);
         }
+        const candles = send(`https://data-api.binance.vision/api/v3/klines?symbol=${encodeURIComponent(`${symbol}USDT`)}&interval=1m&limit=16`, { signal: AbortSignal.timeout(8000) }).then(async (response) => {
+          if (!response.ok) throw new Error("recent candles unavailable");
+          const rows: unknown = await response.json(); if (!Array.isArray(rows)) throw new Error("invalid recent candles");
+          const cutoff = now();
+          return rows.filter((x: any) => Array.isArray(x) && Number(x[0]) + 60000 <= cutoff).map((x: any) => ({ t: Number(x[0]), o: Number(x[1]), h: Number(x[2]), l: Number(x[3]), c: Number(x[4]), v: Number(x[5]) }));
+        }).catch(() => null);
         const r = await send(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${encodeURIComponent(`${symbol}USDT`)}`, { signal: AbortSignal.timeout(8000) });
         if (!r.ok) throw new Error(`Live spot feed HTTP ${r.status}`);
         const data: any = await r.json();
         if (data.symbol !== `${symbol}USDT` || !Number.isSafeInteger(data.closeTime) || ![data.bidPrice, data.askPrice, data.lastPrice].every((x) => Number.isFinite(Number(x)) && Number(x) > 0) || Number(data.bidPrice) >= Number(data.askPrice)) throw new Error("Invalid live spot quote");
-        return observation("live_feed", "binance-spot", { marketType: market, bid: data.bidPrice, ask: data.askPrice, lastPrice: data.lastPrice, quoteCurrency: "USDT", timestampKind: "ticker_window_close" }, data.closeTime, now(), symbol);
+        const minuteCandles = await candles;
+        return observation("live_feed", "binance-spot", { marketType: market, bid: data.bidPrice, ask: data.askPrice, lastPrice: data.lastPrice, quoteCurrency: "USDT", timestampKind: "ticker_window_close", minuteCandles, minuteCandleSource: minuteCandles ? "binance-spot-direct" : "unavailable" }, data.closeTime, now(), symbol);
       })();
       inFlight.set(key, work); void work.finally(() => inFlight.delete(key)).catch(() => {});
     }

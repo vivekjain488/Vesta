@@ -3,9 +3,19 @@
  * are deterministic (this file). Spot-only (Flash): the agent is long or flat, never short.
  */
 import { atr, donchian, ema, last, macd, percentileRank, rollingDailyVol, rsi, type Bar } from "./indicators";
+import { researchSetup, type ResearchStrategy } from "./strategy-setups";
+import type { StrategyConfig } from "./agent-config";
 
 export type Regime = "uptrend" | "range" | "downtrend";
-export type StrategyKind = "momentum" | "mean-reversion" | "dca";
+export type StrategyKind = "momentum" | "mean-reversion" | "dca" | ResearchStrategy;
+export function strategyKindForTemplate(template: StrategyConfig["template"]): StrategyKind {
+  if (template === "spot-dca") return "dca";
+  if (template === "spot-range" || template === "perp-range") return "mean-reversion";
+  if (template === "spot-breakout") return "breakout";
+  if (template === "spot-bollinger") return "bollinger";
+  if (template === "spot-rsi-recovery") return "rsi-recovery";
+  return "momentum";
+}
 
 export interface MarketContext {
   asset: string;
@@ -53,6 +63,8 @@ export interface Signal {
 }
 
 const clamp = (x: number, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, x));
+/** Ignore floating-point rounding at the threshold, not meaningful shortfalls. */
+export const meetsRewardRisk = (actual: number, minimum: number) => Number.isFinite(actual) && Number.isFinite(minimum) && actual + Math.max(1, Math.abs(minimum)) * 1e-12 >= minimum;
 const slope = (series: number[], lookback: number) => {
   const a = series[series.length - 1 - lookback];
   const b = last(series);
@@ -190,7 +202,14 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   if (regime === "downtrend") return reject("downtrend: no new longs");
   if ((close - stop) / close >= 1 / m) return reject("stop outside CPPI gap 1/m");
   if ((target - close) / close < 3 * cost) return reject("expected move < 3x round-trip cost");
-  if (rewardRisk < minRR) return reject("reward:risk < 2");
+  if (!meetsRewardRisk(rewardRisk, minRR)) return reject(`reward:risk < ${minRR}`);
+
+  if (kind === "breakout" || kind === "bollinger" || kind === "rsi-recovery") {
+    const setup = researchSetup(kind, ctx.bars, opts.breakoutBars, opts.rsiOversold);
+    if (!setup.available) return reject(`${kind}: insufficient data`);
+    if (!setup.entry) return reject(`${kind}: entry conditions not met`);
+    return { ...base, direction: "long", reasons: [...reasons, `${kind}: closed-bar entry setup confirmed`], orderType: "limit" };
+  }
 
   if (kind === "dca") {
     // Accumulator: buys on schedule in non-downtrend regimes, smaller size, still bracketed.

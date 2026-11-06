@@ -3,7 +3,7 @@ import { getAddress, isAddress, keccak256, toBytes, type Address } from "viem";
 /** Versioned, data-only strategy DSL. No generated code, addresses, keys, or arbitrary tools. */
 export interface StrategyConfig {
   version: 1;
-  template: "spot-momentum" | "spot-range" | "spot-dca" | "perp-trend" | "perp-range";
+  template: "spot-momentum" | "spot-range" | "spot-dca" | "spot-breakout" | "spot-bollinger" | "spot-rsi-recovery" | "perp-trend" | "perp-range";
   market: "spot" | "perpetual";
   symbols: string[];
   timeframe: "4h";
@@ -37,6 +37,9 @@ export const STRATEGY_TEMPLATES = [
   { id: "spot-momentum", label: "Spot momentum", market: "spot", description: "Long-only trend entries using closed 4h candles." },
   { id: "spot-range", label: "Spot range reversion", market: "spot", description: "Long-only oversold entries in range regimes." },
   { id: "spot-dca", label: "Spot accumulation", market: "spot", description: "Small bracketed buys in non-downtrend regimes." },
+  { id: "spot-breakout", label: "Channel breakout", market: "spot", description: "Follow a close above the prior channel high; monitor the lower channel for exits." },
+  { id: "spot-bollinger", label: "Band reversion", market: "spot", description: "Look for a recovery through the lower volatility band; monitor the mean for exits." },
+  { id: "spot-rsi-recovery", label: "RSI recovery", market: "spot", description: "Look for RSI to recover from oversold; monitor overbought momentum for exits." },
   { id: "perp-trend", label: "Futures trend", market: "perpetual", description: "Paper research: long/short closed-candle breakouts, held over hours or days." },
   { id: "perp-range", label: "Futures range reversion", market: "perpetual", description: "Paper research: long/short oversold or overbought entries in ranges." },
 ] as const;

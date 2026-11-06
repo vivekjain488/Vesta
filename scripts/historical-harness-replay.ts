@@ -8,7 +8,7 @@ import { RuntimeStore } from '../agent/src/runtime/store';
 import { observation } from '../agent/src/runtime/tools';
 import type { RuntimePorts } from '../agent/src/runtime/types';
 
-const start = Date.parse('2024-11-06T00:00:00Z'), requestedMinutes = 360;
+const start = Date.parse('2024-11-06T04:00:00Z'), requestedMinutes = 360;
 const root = process.env.PERPETUA_STATE_DIR!, id = `harness-20241106-${Date.now()}`, dir = resolve(root, 'competitions', id);
 mkdirSync(dir, { recursive: true });
 const endpoint = 'https://data-api.binance.vision/api/v3/klines';
@@ -18,17 +18,30 @@ async function candles(interval: string, from: number, end: number, limit: numbe
   const rows: any = await r.json(); if (!Array.isArray(rows)) throw new Error('Invalid candle response');
   return rows.map((x:any) => ({ t:Number(x[0]), o:Number(x[1]), h:Number(x[2]), l:Number(x[3]), c:Number(x[4]), v:Number(x[5]) }));
 }
-const [minutes, historical] = await Promise.all([candles('1m', start, start + (requestedMinutes+1)*60000, requestedMinutes+1), candles('4h', start - 240*14400000, start + requestedMinutes*60000, 242)]);
-if (minutes.length !== requestedMinutes+1 || minutes.some((b:any,i:number) => b.t !== start+i*60000)) throw new Error('Incomplete historical minute coverage');
+const [minuteData, historical] = await Promise.all([candles('1m', start - 15*60000, start + (requestedMinutes+1)*60000, requestedMinutes+16), candles('4h', start - 240*14400000, start + requestedMinutes*60000, 242)]);
+if (minuteData.length !== requestedMinutes+16 || minuteData.some((b:any,i:number) => b.t !== start+(i-15)*60000)) throw new Error('Incomplete historical minute coverage');
+const minutes = minuteData.slice(15);
 if (historical.length !== 242 || historical.some((b:any,i:number) => b.t !== start-(240-i)*14400000)) throw new Error('Incomplete historical 4h coverage');
 const store = new RuntimeStore(resolve(dir, 'runtime.sqlite'));
 const owner = `0x${'11'.repeat(20)}`;
 const names = ['Momentum','Range','Accumulator','Cautious','Breakout','Mean Reversion','Patient'];
-const personas = ['Follow sustained momentum and exit reversals','Seek range extremes and reversals','Accumulate gradually at favorable prices','Protect capital when downside risk rises','Trade confirmed breakouts and failed breakouts','Trade returns toward recent averages','Be patient and selective'];
+const personas = [
+  'Momentum: focus on the direction and persistence of recent returns. Seek sustained price acceleration and reduce exposure on a supported reversal. Consider higher conviction sizing within the aggressive cap.',
+  'Range: look for prices near the edges of the recent range and evidence of reversal. Avoid treating an established breakout as an ordinary range.',
+  'Accumulator: build exposure in small increments on pullbacks when the longer-term context is suitable. Avoid adding merely because time passed; preserve cash.',
+  'Cautious: prioritize preservation, limit order size and require multiple confirming observations. Consider reducing existing exposure when downside conditions materially worsen.',
+  'Breakout: focus on a credible move above a prior high, its persistence, and the risk of a failed breakout. Do not treat a move inside the range as a confirmed breakout.',
+  'Mean Reversion: measure distance from the recent mean and look for signs of the move reversing. Avoid fading a sustained trend without evidence of exhaustion.',
+  'Patient: seek rare, well-supported accumulation entries, retain cash when evidence is weak and avoid frequent turnover.',
+];
+const templates = ['spot-momentum','spot-bollinger','spot-dca','spot-rsi-recovery','spot-breakout','spot-range','spot-dca'] as const;
 const profiles: RiskProfile[] = ['aggressive','balanced','cautious','cautious','aggressive','balanced','cautious'];
 const accounts = names.map(() => ({ cash:400, qty:600/minutes[0].o, fees:0, fills:[] as any[], decisions:[] as any[] }));
 let simulatedNow = start + 60000, spent = 0, reserved = 0, calls = 0, unknown = 0, budgetLimit = false, completedMinutes = 0, incompleteRound = false;
-const max = 0.0595;
+const budgetArgument = (name: string) => { const raw = process.argv.find((v) => v.startsWith(`--${name}=`))?.split('=')[1]; const value = raw === undefined ? 0 : Number(raw); if (!Number.isFinite(value) || value < 0 || value > 0.0595) throw Error(`Invalid ${name}`); return value; };
+const priorReportedCostUsd = budgetArgument('prior-spend-usd'), priorReservedUpperUsd = budgetArgument('prior-reservation-usd');
+const max = 0.0595 - priorReportedCostUsd - priorReservedUpperUsd;
+if (max <= 0) throw Error('No replay budget remains after prior charges and reservations');
 // Reservation is intentionally conservative: bytes are an upper bound on input tokens.
 const send: typeof fetch = async (url, init) => {
   const body = JSON.parse(String(init!.body));
@@ -48,21 +61,22 @@ const send: typeof fetch = async (url, init) => {
 const agents = names.map((name,i) => {
   const portfolioId = `paper-${i}`;
   store.bindPortfolio({id:portfolioId,owner,chainId:31337,rpc:'http://127.0.0.1:8545',vault:owner,wallet:owner,riskGate:owner,stable:owner});
-  const config = applyRiskProfile(templateConfig((['spot-momentum','spot-range','spot-dca'][i%3]) as 'spot-momentum'|'spot-range'|'spot-dca'), profiles[i]); config.symbols=['BTC'];
+  const config = applyRiskProfile(templateConfig(templates[i]), profiles[i]); config.symbols=['BTC'];
   return store.activate({id:`historical-${i}`,owner,name,revision:1,config,configHash:configHash(config),instructions:`Personality: ${personas[i]}. ${RISK_PROFILES[profiles[i]].instructions} This is historical paper trading, not live. Consider the supplied recent one-minute BTC candles, 4h trend, portfolio, 0.1% fee and previous decisions. Treat the 4h template as background for this one-minute experiment. Propose at most $${config.risk.maxNotionalUsd} per trade. You may buy, sell existing BTC, or hold; choose independently based on evidence.`,portfolioId,mode:'analysis',status:'active'}, simulatedNow);
 });
 const providers = agents.map(() => new OpenRouterInference({apiKey:process.env.OPENROUTER_API_KEY!,modelSmall:'qwen/qwen3.7-flash',maxTokensPerHour:100000000,maxTokensPerDay:100000000},send));
 const save = (phase:string, reason?:string) => {
   const mark = completedMinutes ? minutes[completedMinutes].o : minutes[0].o;
-  const rows = agents.map((a,i) => { const x=accounts[i]; return { name:a.name, personality:personas[i], riskProfile:profiles[i], maxOrderUsd:a.config.risk.maxNotionalUsd, riskPerTradePct:a.config.risk.riskPerTradePct, cash:x.cash, btc:x.qty, fees:x.fees, profit:x.cash+x.qty*mark-1000, equity:x.cash+x.qty*mark, fills:x.fills, decisions:x.decisions }; }).sort((a,b)=>b.profit-a.profit);
-  const out = { id, mode:'historical paper replay using hosted harness', phase, reason, model:'qwen/qwen3.7-flash', historicalStart:new Date(start).toISOString(), historicalEnd:new Date(start+requestedMinutes*60000).toISOString(), completedMinutes, requestedMinutes, incompleteRound, calls, reportedCostUsd:spent, reservedUpperUsd:reserved, unknownCostCalls:unknown, price:mark, source:'Binance BTCUSDT historical candles; replay fixture, not Arkiv', initialCapitalUsd:1000, feePct:0.1, rows };
+  const rows = agents.map((a,i) => { const x=accounts[i]; return { name:a.name, personality:personas[i], template:a.config.template, riskProfile:profiles[i], maxOrderUsd:a.config.risk.maxNotionalUsd, riskPerTradePct:a.config.risk.riskPerTradePct, cash:x.cash, btc:x.qty, fees:x.fees, profit:x.cash+x.qty*mark-1000, equity:x.cash+x.qty*mark, fills:x.fills, decisions:x.decisions }; }).sort((a,b)=>b.profit-a.profit);
+  const passiveProfit = 400 + (600/minutes[0].o)*mark - 1000;
+  const out = { id, mode:'historical paper replay using hosted harness', inferenceMode:'compact paper: one model call per agent per minute, combined research and risk review', phase, reason, model:'qwen/qwen3.7-flash', historicalStart:new Date(start).toISOString(), historicalEnd:new Date(start+requestedMinutes*60000).toISOString(), completedMinutes, requestedMinutes, incompleteRound, calls, reportedCostUsd:spent, reservedUpperUsd:reserved, priorReportedCostUsd, priorReservedUpperUsd, totalReportedCostUsd:priorReportedCostUsd+spent, totalReservedUpperUsd:priorReservedUpperUsd+reserved, unknownCostCalls:unknown, price:mark, source:'Binance BTCUSDT historical candles; replay fixture, not Arkiv', initialCapitalUsd:1000, feePct:0.1, benchmark: { name:'Passive starting allocation', description:'Same starting $400 cash and $600 BTC, held without trades', profit: passiveProfit, equity: 1000 + passiveProfit }, rows };
   writeFileSync(resolve(dir,'leaderboard.json'),JSON.stringify(out,null,2)); writeFileSync(resolve(root,'paper-leaderboard.json'),JSON.stringify(out,null,2));
 };
 let reason = '6 hours completed';
 try {
   for (let minute=0; minute<requestedMinutes; minute++) {
     simulatedNow = start+(minute+1)*60000;
-    const bar = minutes[minute], recent = minutes.slice(Math.max(0,minute-14),minute+1);
+    const bar = minutes[minute], recent = minuteData.slice(minute+1, minute+16);
     const closed = historical.filter((b:any) => b.t+14400000<=simulatedNow).slice(-240).map((b:any)=>({...b,t:b.t/1000}));
     const runs = await Promise.all(agents.map(async (a,i) => {
       const account=accounts[i];
@@ -73,7 +87,7 @@ try {
         portfolio:async()=>({owner,portfolioId:a.portfolioId,sourceAtMs:simulatedNow,cashMicros:String(Math.floor(account.cash*1e6)),capacityMicros:'100000000',positions:[{symbol:'BTC',quantity:account.qty,paper:true}]}),
       };
       const run=store.claim(a,Math.floor(simulatedNow/60000),simulatedNow,simulatedNow+55000)!;
-      await new MinuteHarness(store,ports,{now:()=>simulatedNow}).run(a,run);
+      await new MinuteHarness(store,ports,{now:()=>simulatedNow,compactPaper:true}).run(a,run);
       return store.run(run.id)!;
     }));
     if (budgetLimit) { incompleteRound=true; reason=unknown?'billing unknown; stopped with outstanding reservation':'inference reservation cap reached'; break; }

@@ -1,6 +1,7 @@
-import { configHash, generateSignal } from "@perpetua/core";
+import { configHash, generateSignal, researchSetup, strategyKindForTemplate } from "@perpetua/core";
 import type { Observation, RuntimeAgent, RuntimePorts, ToolCall } from "./types";
 import type { RuntimeStore } from "./store";
+import { strategyContext } from "./strategy-context";
 
 export function assertObservation(o: Observation, kind: Observation["sourceKind"], now: number, maxAgeMs = 10000) {
   if (!o || o.sourceKind !== kind || !o.source || !Number.isSafeInteger(o.sourceAtMs) || !Number.isSafeInteger(o.receivedAtMs) || o.receivedAtMs > now + 1000 || o.sourceAtMs > now + 1000 || o.hash !== configHash(o.data)) throw new Error("Invalid observation source, timestamps or content hash");
@@ -49,10 +50,13 @@ export class RuntimeTools {
   }
   /** Keep model context bounded; the complete observations are separately journaled. */
   context(value: any) {
+    if (value?.sourceKind === "live_feed" && value.data?.minuteCandles) return { ...value, data: { ...value.data, strategyContext: strategyContext(this.a.config.template, value.data.minuteCandles.filter((bar: any) => Number(bar.t ?? bar.openTime) + 60000 <= this.now()), this.now()) } };
     if (value?.sourceKind !== "arkiv_history" || !value.data?.bars) return value;
     const bars = value.data.bars;
     let signal: unknown;
-    try { signal = generateSignal({ asset: value.symbol, bars }, { kind: this.a.config.template === "spot-dca" ? "dca" : this.a.config.template.endsWith("range") ? "mean-reversion" : "momentum", ...this.a.config.parameters }); } catch { signal = { unavailable: "insufficient indicator history" }; }
-    return { ...value, data: { ...value.data, bars: bars.slice(-8), totalBars: bars.length, deterministicSignal: signal, coverageEndMs: (bars.at(-1).t + 14400) * 1000, gapToNowMs: this.now() - (bars.at(-1).t + 14400) * 1000 } };
+    const kind = strategyKindForTemplate(this.a.config.template);
+    try { signal = generateSignal({ asset: value.symbol, bars }, { kind, ...this.a.config.parameters }); } catch { signal = { unavailable: "insufficient indicator history" }; }
+    const setup = kind === "breakout" || kind === "bollinger" || kind === "rsi-recovery" ? researchSetup(kind, bars, this.a.config.parameters.breakoutBars, this.a.config.parameters.rsiOversold) : undefined;
+    return { ...value, data: { ...value.data, bars: bars.slice(-8), totalBars: bars.length, fourHourEntryAnalysis: { scope: "4h entry analysis only; it is not an exit signal or a reason by itself to sell existing holdings", signal }, ...(setup ? { strategySetup: { ...setup, note: "Closed-bar setup evidence, not an order; apply current price and risk checks." } } : {}), coverageEndMs: (bars.at(-1).t + 14400) * 1000, gapToNowMs: this.now() - (bars.at(-1).t + 14400) * 1000 } };
   }
 }
