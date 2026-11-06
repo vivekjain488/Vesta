@@ -28,6 +28,7 @@ import { Platform } from "./platform";
 import { chainOperation, localPriceUsd, prepareLocalWithdrawal, refreshLocalRisk } from "./local-withdrawals";
 import { deployLocalAgent, localFaucet } from "./local-agents";
 import { pendingWithdrawals, finishWithdrawals, startLocalRuntime } from "./local-runtime";
+import { registryRouter } from "./registry";
 import { latestMarket, marketCandles, marketHistory, safeMarketError, ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
 import { createPublicClient, erc20Abi, hexToString, http, keccak256, toBytes, parseUnits, formatUnits, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -51,6 +52,7 @@ const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:3000";
 const sessions = new WalletSessions(appOrigin);
 const sessionOwner = (req: express.Request) => sessions.read(req.headers.cookie)?.address as Address;
 app.use(express.json({ limit: "64kb" }));
+app.use("/registry", registryRouter());
 app.use((req, res, next) => {
   const origin = req.header("origin");
   if (origin && origin !== appOrigin) return void res.status(403).json({ error: "Origin not allowed" });

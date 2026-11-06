@@ -8,6 +8,7 @@
 import { SpendCap, type TierPolicy } from "@perpetua/core";
 import { keccak256, toBytes, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { projectRpc } from "@perpetua/arkiv";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -63,7 +64,10 @@ export class ZeroGBrain implements Brain {
   async init() {
     const { ethers } = await import("ethers");
     const sdk: any = await import("@0gfoundation/0g-compute-ts-sdk");
-    const provider = new ethers.JsonRpcProvider(this.cfg.rpc);
+    const chainId = Number(process.env.ZG_CHAIN_ID ?? 16602);
+    const discovered = await projectRpc(chainId, this.cfg.rpc);
+    const provider = new ethers.JsonRpcProvider(discovered.endpoint);
+    if ((await provider.getNetwork()).chainId !== BigInt(chainId)) throw new Error("0G RPC returned the wrong chain ID");
     const wallet = new ethers.Wallet(this.cfg.privateKey, provider);
     this.broker = await sdk.createZGComputeNetworkBroker(wallet);
     const providers = [...new Set([this.cfg.providerLarge, this.cfg.providerSmall].filter(Boolean))];

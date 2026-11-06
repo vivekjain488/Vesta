@@ -1,12 +1,15 @@
-# Why Arkiv
+# Why Arkiv: a chain registry other projects can query
 
-1. **Confidence-ranked answers from several sources at once.** Each entry carries `sources_agreeing`, `decode_verified` and a `confidence` grade. A query such as `where(eq("selector", s))` returns every candidate with its evidence, which no single upstream API gives you. The docs alone can't either.
-2. **Tamper-evident submitter history.** Every row is owned by the wallet that wrote it, so `ownedBy(importer)` tells curated rows apart from community submissions (`signature-atlas.submission.v1`). Each import run records its source fingerprint.
-3. **Data no single maintainer can take down.** Etherface and the OpenChain export both vanished when their maintainers moved on. On Arkiv the mirror outlives this team: any wallet can keep re-importing, and reads are public, free and permissionless.
-4. **The same properties carry Perpetua's own trust story.** A stranger hiring an agent needs the full track record from a source the agent's owner doesn't control:
-   - commit-reveal signals, so confidence can't be edited after the outcome;
-   - an hourly income ledger, showing fees paid compute before profit;
-   - TEE-backed decision logs;
-   - every leaderboard snapshot.
+A Postgres implementation could provide the same filters if we built and hosted a public API. The difference is who readers depend on and which evidence they can inspect.
 
-   There is no backend database to trust. The Arena reads Arkiv straight from the browser.
+1. **Independent public query access.** Chain and endpoint records are entities on Rabdi. Any reader can query indexed chain ID, name prefix, parent, network classification, transport and key requirement with the Arkiv SDK/JSON-RPC. Readers do not need our server, database credentials, wallet session or a team-issued API key. Anonymous Arkiv RPC is rate-limited; a reader can obtain their own access key without permission from this project.
+2. **Writer attribution and independently inspectable publication.** Readers filter by `ownedBy(0x0f531Abb28A54435a5848AA70deF32040E2A2e65)`, inspect entity keys/transactions and compare content hashes against a pinned upstream Git commit. A competing publisher has a different owner identity. A schema name alone is not a trust boundary.
+3. **A complete generation, not an HTTP file assumed to be current.** Readers follow a head to a complete snapshot, then query linked chain/RPC entities under that snapshot. The head changes only after all rows have confirmed receipts and exact counts. Old generations can be queried explicitly until expiry, allowing clients to inspect historical registry revisions. An interrupted import does not serve a mixed generation.
+4. **Useful queries beyond the upstream aggregate.** The upstream provides Git/JSON documents. Our copy supports indexed queries such as public HTTPS endpoints requiring no key for chain 16602, EIP-155 chains whose parent is eip155-1, or a lowercase chain-name prefix. Chains and endpoints are separate tables, so transport/access filtering does not require fetching every full chain document.
+5. **A working consumer.** Perpetua resolves its remote RPCs from Arkiv, verifies the requested chain ID and reports the chain/RPC entity keys and snapshot used. The upstream GitHub site is needed for importing, not for each application's discovery request.
+
+The guarantees have limits: provenance is evidence of what this writer published, not proof an upstream network is safe. Our importer treats published data generations as immutable, but the owner retains Arkiv's patch/delete rights; we do not claim owner-proof immutability. Arkiv nodes/RPC access and gas funding remain dependencies. All entities expire after 30 days without continued refresh/extension. A publicly hosted SQL service could add signed audit logs and reproduce some of these properties; our copy uses Arkiv's existing public ownership/query infrastructure instead of asking every consumer to trust our bespoke server.
+
+## Reproduce the difference
+
+Stop the Perpetua API and run `pnpm registry:query chain 16602`: it still queries Arkiv directly. Then use `pnpm registry:query resolve 16602` to obtain a chain-ID-verified endpoint with writer, snapshot and entity-key provenance. Source and schemas are open, so a reader can implement this query without our application.

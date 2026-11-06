@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createPublicClient, http, getAddress, erc20Abi, type Address } from "viem";
 import { agentWalletAbi, perpetuaVaultAbi, riskGateAbi } from "@perpetua/core";
+import { projectTransport } from "@perpetua/arkiv";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value, (_, v) => typeof v === "bigint" ? v.toString() : v));
 export class Platform {
-  readonly pub = createPublicClient({ transport: http(process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545") });
+  readonly pub = createPublicClient({ transport: projectTransport(Number(process.env.VAULT_CHAIN_ID ?? 31337), process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545") });
   constructor(readonly state: string) {}
   deployment() {
     const file = process.env.DEPLOYMENT_FILE ?? resolve(this.state, "../contracts/deployments/local-31337.json");

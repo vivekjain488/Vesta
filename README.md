@@ -4,6 +4,23 @@
 
 Perpetua is an on-chain principal-protected note (Endowment-CPPI) managed by an AI agent. The agent has to earn its own inference bill. Its risk limits are enforced on-chain by **RiskGate**, a deterministic smart contract, not by trusting the AI.
 
+## Ethereum chain and RPC registry on Arkiv
+
+For **Mirror something Ethereum depends on**, the project mirrors all **2,855 EIP-155 chains** and **4,219 unique RPC endpoints** from the MIT-licensed [ethereum-lists/chains](https://github.com/ethereum-lists/chains) registry. Chains and RPCs are separate indexed Arkiv tables, published as complete, versioned snapshots with source commit, hashes, license and writer provenance. The project itself resolves remote RPCs, including 0G's blockchain RPC, through Arkiv and verifies the returned chain ID. Source endpoints are not silently substituted if Arkiv is unavailable.
+
+**Rabdi writer:** `0x0f531Abb28A54435a5848AA70deF32040E2A2e65` · chain ID **7794095**. [Deployment metadata](arkiv/registry-deployment.json) · [source license/attribution](arkiv/THIRD_PARTY_NOTICES.md) · [project MIT license](LICENSE) · [AI disclosure](AI_DISCLOSURE.md).
+
+```sh
+pnpm registry:query chain 16602       # read 0G metadata/RPC entities directly from Arkiv
+pnpm registry:query resolve 16602     # Arkiv discovery + live chain-ID verification
+pnpm registry:import --dry-run        # reproduce full-source validation without spending gas
+pnpm registry:import                  # funded importer; resumes safely after interruptions
+```
+
+Reads need no writer key or Perpetua account. The local public API is `GET http://localhost:8787/registry/chains?chainId=16602`; it has no wallet/session requirement. The signed-in app has a **Chain registry** table at `/registry`. SDK schemas and direct queries work independently of our API. Anonymous Arkiv RPC has a quota; readers can obtain their own optional access key from Arkiv Hub.
+
+Track files: [schema](arkiv/schema.md), [feedback](arkiv/friction.md), [reach](arkiv/reach.md), [why Arkiv](arkiv/why-arkiv.md), [data quality](arkiv/data-quality.md). [Full operation and RPC integration guide](docs/chain-registry.md). The earlier Signature Atlas remains a separate dataset; this registry is sourced from ethereum-lists, not Sourcify.
+
 - **The AI proposes, RiskGate disposes.** The LLM, running on 0G Compute with TEE-signed output, proposes trades. RiskGate computes F, C and E from live vault state and a fresh Flash price, then approves or rejects each order. The agent's EIP-1271 wallet signs only approved Flash orders.
 - **Survival-CPPI.** F = π·P + R, C = max(V − F, 0), E = min(m·C, E_max). Only the cushion can ever be risked, so the agent cannot trade itself to death.
 - **A metabolism.** Runway decides the model tier: Thrive (large model) → Frugal (small model) → Starving (rules only) → Hibernate. It moves back up when income lands.

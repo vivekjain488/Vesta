@@ -1,6 +1,7 @@
 import { createPublicClient, createWalletClient, defineChain, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base, baseSepolia, foundry } from "viem/chains";
+import { projectTransport } from "@perpetua/arkiv";
 
 export function chainFor(id: number, rpc: string) {
   if (id === base.id) return base;
@@ -18,8 +19,8 @@ export function clients(rpc: string, chainId: number, key: Hex) {
   return {
     account,
     chain,
-    pub: createPublicClient({ chain, transport: http(rpc) }),
-    wallet: createWalletClient({ chain, transport: http(rpc), account }),
+    pub: createPublicClient({ chain, transport: projectTransport(chainId, rpc) }),
+    wallet: createWalletClient({ chain, transport: projectTransport(chainId, rpc), account }),
   };
 }
 

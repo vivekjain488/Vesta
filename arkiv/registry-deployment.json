@@ -1,0 +1,7 @@
+{
+  "chainId": 7794095,
+  "network": "Rabdi",
+  "writer": "0x0f531Abb28A54435a5848AA70deF32040E2A2e65",
+  "source": "https://github.com/ethereum-lists/chains",
+  "schemas": ["ethereum-registry.chain.v1", "ethereum-registry.rpc.v1", "ethereum-registry.snapshot.v1", "ethereum-registry.head.v1"]
+}
