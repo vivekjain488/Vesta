@@ -81,7 +81,8 @@ export const SignalEntity = defineSchema("perpetua.signal.v1", {
   outcome: str().indexed().optional(), // win | loss | scratch
   r_multiple: dec().indexed().optional(),
   revealed_at: u64().indexed().optional(),
-  payload: bytes().optional(), // revealed: entry, stop, target, 0G chat ID, Flash order ID, reasoning, salt
+  agent_id: str().indexed().optional(), // platform agent ID (many local agents can share one proposer address)
+  payload: bytes().optional(), // revealed: entry, stop, target, 0G chat ID, Flash order ID, reasoning, salt (sealed: paid data)
 });
 
 export const TradeEntity = defineSchema("perpetua.trade.v1", {
@@ -96,7 +97,8 @@ export const TradeEntity = defineSchema("perpetua.trade.v1", {
   opened_at: u64().indexed(),
   created_at: u64().indexed(),
   pnl_usd: dec().indexed().optional(),
-  payload: bytes(), // size, entry, stop, target, tx hash
+  agent_id: str().indexed().optional(),
+  payload: bytes(), // size, entry, stop, target, tx hash (sealed: paid data)
 });
 
 export const RiskCheckEntity = defineSchema("perpetua.risk-check.v1", {
@@ -142,7 +144,8 @@ export const DecisionLog = defineSchema("perpetua.decision-log.v1", {
   tee_verified: bool().indexed(),
   credit_cost_og: dec().indexed(),
   created_at: u64().indexed(),
-  payload: bytes(), // { riskGateApprovalTx, flashOrderId, teeSignature, reasoningSummary }
+  agent_id: str().indexed().optional(),
+  payload: bytes(), // { riskGateApprovalTx, flashOrderId, teeSignature, reasoningSummary } (sealed: paid data)
 });
 
 export const LeaderboardSnapshot = defineSchema("perpetua.leaderboard-snapshot.v1", {

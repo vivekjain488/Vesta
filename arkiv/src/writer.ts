@@ -58,7 +58,8 @@ export class ArkivWriter {
   }
 
   start() {
-    const ms = this.opts.intervalMs ?? 45_000;
+    // Each flush is one Arkiv transaction; coalescing per uid means a longer interval loses nothing, it just batches.
+    const ms = this.opts.intervalMs ?? Number(process.env.ARKIV_FLUSH_INTERVAL_MS ?? 45_000);
     this.timer = setInterval(() => void this.flush().catch((e) => console.error("[arkiv] flush failed", e)), ms);
     this.timer.unref?.();
   }

@@ -51,9 +51,13 @@ export function healthWriter(): Address | null {
 const column = (v: any) => v?.value ?? v;
 
 // ------------------------------------------------------------------------------------------------- write
-interface Queue { items: (StoredSample & { uid: string })[]; published: number; lastTx?: string; lastError?: string }
+interface Queue { items: (StoredSample & { uid: string })[]; published: number; lastTx?: string; lastError?: string; failures?: number; nextTryAt?: number }
 
 /** Durable queue + batched writes (one transaction per flush). One instance per process (separate queue files). */
+/** Arkiv nodes reject query pages above 100 rows. */
+const PAGE = 100;
+const MIN_BALANCE_WEI = 1_000_000_000_000_000n; // 0.001 ETH on Arkiv: below this, stop writing instead of failing
+
 export class RpcHealthPublisher {
   private readonly file: string;
   private q: Queue;
@@ -63,6 +67,7 @@ export class RpcHealthPublisher {
   constructor(name: string, private readonly vantage = process.env.RPC_HEALTH_VANTAGE ?? "perpetua-api") {
     this.file = resolve(process.env.PERPETUA_STATE_DIR ?? ".perpetua", `rpc-health-arkiv-${name}.json`);
     this.q = existsSync(this.file) ? JSON.parse(readFileSync(this.file, "utf8")) : { items: [], published: 0 };
+    this.trim();
   }
   get enabled() { return Boolean(key()); }
   status() { return { enabled: this.enabled, queued: this.q.items.length, published: this.q.published, lastTx: this.q.lastTx ?? null, lastError: this.q.lastError ?? null, writer: healthWriter() }; }
@@ -73,9 +78,11 @@ export class RpcHealthPublisher {
     const uid = `${chainId}:${endpointHash}:${probe.at}`;
     if (this.q.items.some((i) => i.uid === uid)) return;
     this.q.items.push({ uid, chainId, endpointHash, at: probe.at, ok: probe.ok, latencyMs: Math.max(0, Math.round(probe.latencyMs)), outcome: probe.outcome, httpStatus: probe.httpStatus, source });
-    if (this.q.items.length > 5000) this.q.items = this.q.items.slice(-5000); // bounded backlog if Arkiv is down for long
+    this.trim();
     this.save();
   }
+  /** Bounded backlog: only the last 24h matter for availability, so never pay to publish anything older. */
+  private trim() { const cutoff = Date.now() - 24 * 3600_000; this.q.items = this.q.items.filter((i) => i.at >= cutoff).slice(-2000); }
 
   private enqueueWork<T>(work: () => Promise<T>): Promise<T> {
     const run = this.tail.then(work, work);
@@ -107,25 +114,32 @@ export class RpcHealthPublisher {
   }
 
   private async flushNow(opts: { minIntervalMs?: number; minBatch?: number; maxBatch?: number } = {}) {
-    const { minIntervalMs = 60_000, minBatch = 16, maxBatch = 24 } = opts;
+    const { minIntervalMs = 60_000, minBatch = 12, maxBatch = 12 } = opts;
     if (!this.enabled || this.busy || !this.q.items.length) return null;
+    if (Date.now() < (this.q.nextTryAt ?? 0)) return null; // backing off after a failed write
     if (this.q.items.length < minBatch && Date.now() - this.lastFlush < minIntervalMs) return null;
     this.busy = true;
     const batch = this.q.items.slice(0, maxBatch);
     try {
-      const client: any = createWalletClient({ chain: arkivChain(), transport: http(), account: privateKeyToAccount(key()!) });
+      const account = privateKeyToAccount(key()!);
+      const balance: bigint = await (arkivPublic() as any).getBalance({ address: account.address });
+      if (balance < MIN_BALANCE_WEI) throw new Error(`health writer ${account.address} balance too low (${Number(balance) / 1e18} ETH on Arkiv); top it up to resume`);
+      const client: any = createWalletClient({ chain: arkivChain(), transport: http(), account });
       const creates = batch.map((s) => ({
         schema: RpcHealthSample,
         values: { uid: s.uid, chain_id: u64(BigInt(s.chainId)), endpoint_hash: s.endpointHash, at_ms: u64(BigInt(s.at)), ok: s.ok, latency_ms: u64(BigInt(s.latencyMs)), outcome: s.outcome, http_status: u64(BigInt(s.httpStatus ?? 0)), source: s.source, vantage: this.vantage },
-        expiration: ExpirationTime.fromDays(30),
+        expiration: ExpirationTime.fromDays(8), // the endpoint detail view reads 7 days
       }));
       const result = await client.executeBatch({ creates, patches: [], extensions: [] });
       const done = new Set(batch.map((b) => b.uid));
       this.q.items = this.q.items.filter((i) => !done.has(i.uid));
-      this.q.published += batch.length; this.q.lastTx = result.txHash; this.q.lastError = undefined;
+      this.q.published += batch.length; this.q.lastTx = result.txHash; this.q.lastError = undefined; this.q.failures = 0; this.q.nextTryAt = 0;
       this.lastFlush = Date.now(); this.save();
       return { published: batch.length, txHash: result.txHash as string };
     } catch (e) {
+      // Exponential backoff (2 min .. 2 h): a failing write must never keep spending gas every minute.
+      this.q.failures = (this.q.failures ?? 0) + 1;
+      this.q.nextTryAt = Date.now() + Math.min(2 * 3600_000, 120_000 * 2 ** (this.q.failures - 1));
       this.q.lastError = String((e as Error).message).replace(/https?:\/\/\S+/g, "[endpoint]").split("\n")[0].slice(0, 200);
       this.lastFlush = Date.now(); this.save();
       return null;
@@ -147,11 +161,11 @@ export async function arkivHealthSamples(chainId: number, sinceMs = Date.now() -
   for (let page = 0; page < 25; page++) {
     const result = await (arkivPublic() as any).select().from(RpcHealthSample)
       .where(and(eq("chain_id", u64(BigInt(chainId))), gt("at_ms", u64(after))))
-      .createdBy(writer).orderBy(asc("at_ms")).limit(200).fetch();
+      .createdBy(writer).orderBy(asc("at_ms")).limit(PAGE).fetch();
     for (const r of result.entities) {
       out.push({ chainId: Number(column(r.chain_id)), endpointHash: String(column(r.endpoint_hash)), at: Number(column(r.at_ms)), ok: Boolean(column(r.ok)), latencyMs: Number(column(r.latency_ms)), outcome: String(column(r.outcome)), httpStatus: Number(column(r.http_status)) || undefined, source: String(column(r.source)) });
     }
-    if (result.entities.length < 200) break;
+    if (result.entities.length < PAGE) break;
     after = BigInt(out[out.length - 1].at);
   }
   cache.set(cacheKey, { at: Date.now(), samples: out });
@@ -172,9 +186,9 @@ export async function arkivEndpointSamples(chainId: number, endpointHash: string
   for (let page = 0; page < 20; page++) {
     const result = await (arkivPublic() as any).select().from(RpcHealthSample)
       .where(and(eq("chain_id", u64(BigInt(chainId))), eq("endpoint_hash", endpointHash), gt("at_ms", u64(after))))
-      .createdBy(writer).orderBy(asc("at_ms")).limit(200).fetch();
+      .createdBy(writer).orderBy(asc("at_ms")).limit(PAGE).fetch();
     for (const r of result.entities) out.push(sampleOf(r));
-    if (result.entities.length < 200) break;
+    if (result.entities.length < PAGE) break;
     after = BigInt(out[out.length - 1].at);
   }
   return out;
