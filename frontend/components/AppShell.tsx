@@ -6,6 +6,7 @@ import { Bot, LayoutGrid, Loader2, LogOut, Plus, Trophy, Wallet } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ErrorNote, Micro } from "@/components/ui-perpetua";
+import { SplitHeading } from "@/components/motion";
 import { cn } from "@/lib/utils";
 import { useWallet } from "./Wallet";
 
@@ -33,16 +34,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!wallet.address)
     return (
       <main className="flex min-h-screen items-center justify-center px-5 py-10">
-        <section className="relative w-full max-w-md overflow-hidden rounded-[32px] bg-gradient-to-b from-[#6a88fb] to-brand p-8 text-white shadow-[0_24px_60px_-28px_rgba(91,124,250,0.6)] sm:p-10">
+        <section data-reveal className="relative w-full max-w-md overflow-hidden rounded-[32px] bg-gradient-to-b from-[#6a88fb] to-brand p-8 text-white shadow-[0_24px_60px_-28px_rgba(91,124,250,0.6)] sm:p-10">
           <div className="flex items-center justify-between">
             <p className="font-display text-3xl leading-none">Perpetua</p>
             <span className="micro rounded-full bg-white/15 px-2.5 py-1 text-white/90">Sign in</span>
           </div>
-          <h1 className="mt-14 font-display text-[3.4rem] leading-[0.95] tracking-tight">
+          <SplitHeading className="mt-14 font-display text-[3.4rem] leading-[0.95] tracking-tight">
             Your agents.
             <br />
             Your capital.
-          </h1>
+          </SplitHeading>
           <p className="mt-5 text-white/80">Sign in with MetaMask to manage your agents and investments.</p>
           <Button
             size="xl"
@@ -110,7 +111,7 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
   const isActive = useActive();
   return (
     <aside className="fixed inset-y-6 right-6 z-40 hidden w-16 flex-col items-center justify-between lg:flex" aria-label="Main navigation">
-      <div className="flex flex-col items-center gap-3">
+      <div data-reveal="right" className="flex flex-col items-center gap-3">
         <Link href="/" className="font-display text-2xl leading-none" aria-label="Perpetua dashboard">
           P<span className="text-brand">.</span>
         </Link>
@@ -133,7 +134,7 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
           <TooltipContent side="left">Create agent</TooltipContent>
         </Tooltip>
       </div>
-      <nav className="flex flex-col items-center gap-1 rounded-full bg-card p-2 shadow-[0_1px_2px_rgba(17,17,17,0.05),0_0_0_1px_rgba(17,17,17,0.03)]">
+      <nav data-reveal="right" className="flex flex-col items-center gap-1 rounded-full bg-card p-2 shadow-[0_1px_2px_rgba(17,17,17,0.05),0_0_0_1px_rgba(17,17,17,0.03)]">
         {NAV.map((n) => <RailButton key={n.href} {...n} active={isActive(n.href)} />)}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -150,7 +151,7 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
 
 function MobileTopBar({ address }: { address: string }) {
   return (
-    <header className="flex items-center justify-between px-4 pt-4 sm:px-6 lg:hidden">
+    <header data-reveal="down" className="flex items-center justify-between px-4 pt-4 sm:px-6 lg:hidden">
       <Link href="/" className="font-display text-3xl leading-none">Perpetua</Link>
       <span className="flex items-center gap-2 rounded-full bg-card px-3 py-1.5 shadow-[0_0_0_1px_rgba(17,17,17,0.04)]">
         <span className="size-1.5 rounded-full bg-profit" aria-hidden />
@@ -164,7 +165,7 @@ function MobileTopBar({ address }: { address: string }) {
 function MobileNav({ onSignOut }: { onSignOut: () => void }) {
   const isActive = useActive();
   return (
-    <nav className="fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-full bg-card p-1.5 shadow-[0_8px_30px_-12px_rgba(17,17,17,0.25),0_0_0_1px_rgba(17,17,17,0.04)] lg:hidden" aria-label="Main navigation">
+    <nav data-reveal className="fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-full bg-card p-1.5 shadow-[0_8px_30px_-12px_rgba(17,17,17,0.25),0_0_0_1px_rgba(17,17,17,0.04)] lg:hidden" aria-label="Main navigation">
       {NAV.map(({ href, label, icon: Icon }) => (
         <Link key={href} href={href} aria-label={label} aria-current={isActive(href) ? "page" : undefined} className={cn("flex h-11 flex-1 items-center justify-center rounded-full transition-colors duration-150", isActive(href) ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
           <Icon className="size-5" strokeWidth={1.75} />

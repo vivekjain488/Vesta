@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { Flip, reducedMotion, useGSAP } from "@/lib/gsap";
+import { AnimatedNumber } from "./motion";
 import { ArrowUp, ArrowUpRight, Bot, ChevronDown, ChevronRight, Plus, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -102,6 +104,8 @@ function AgentTile({ a, selected, onSelect }: { a: DashboardAgent; selected: boo
   const c = a.chain;
   return (
     <div
+      data-flip-id={a.id}
+      data-reveal
       role="button"
       tabIndex={0}
       aria-pressed={selected}
@@ -127,7 +131,7 @@ function AgentTile({ a, selected, onSelect }: { a: DashboardAgent; selected: boo
       <div className="mt-auto pt-6">
         {c && <CppiBar V={c.V} F={c.F} C={c.C} E={c.E} zoom={false} className="[&>div:last-child]:hidden" />}
         <Micro className={cn("mt-3 block", featured ? "text-foreground/70" : undefined)}>Profit</Micro>
-        <p className="num text-[1.9rem] leading-tight font-semibold tracking-tight">{a.chain ? signedUsd(a.profit ?? 0) : "—"}</p>
+        <p className="num text-[1.9rem] leading-tight font-semibold tracking-tight">{a.chain ? <AnimatedNumber value={a.profit ?? 0} format={(n) => signedUsd(n)} /> : "—"}</p>
       </div>
     </div>
   );
@@ -137,6 +141,23 @@ function AgentTile({ a, selected, onSelect }: { a: DashboardAgent; selected: boo
 export function IntelligencePanel({ agent, agents, onSelect, loading, className }: { agent?: DashboardAgent; agents: DashboardAgent[]; onSelect: (id: string) => void; loading: boolean; className?: string }) {
   const [sort, setSort] = useState<keyof typeof SORTS>("profit");
   const posts = useFeed(agent ? [agent.name, agent.id] : undefined);
+
+  // Flip: capture tile positions before the sort changes, then animate them into their new order.
+  const tilesRef = useRef<HTMLDivElement>(null);
+  const flipState = useRef<ReturnType<typeof Flip.getState> | null>(null);
+  const changeSort = (next: keyof typeof SORTS) => {
+    if (tilesRef.current && !reducedMotion()) flipState.current = Flip.getState(tilesRef.current.querySelectorAll("[data-flip-id]"));
+    setSort(next);
+  };
+  useGSAP(
+    () => {
+      const state = flipState.current;
+      if (!state) return;
+      flipState.current = null;
+      Flip.from(state, { duration: 0.4, ease: "power2.inOut" });
+    },
+    { dependencies: [sort], scope: tilesRef },
+  );
   const events = useMemo<Event[]>(() => {
     if (!agent) return [];
     const list: Event[] = [
@@ -187,7 +208,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
         ) : (
           <ol className="space-y-2.5 pb-4">
             {events.map((e, i) => (
-              <li key={`${e.kind}-${e.at}-${i}`}>
+              <li key={`${agent?.id}-${e.kind}-${e.at}-${i}`} data-reveal>
                 {e.kind === "post" ? (
                   <Bubble>
                     <div className="flex items-center justify-between gap-2">
@@ -230,7 +251,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="rounded-2xl">
-              <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as keyof typeof SORTS)}>
+              <DropdownMenuRadioGroup value={sort} onValueChange={(v) => changeSort(v as keyof typeof SORTS)}>
                 {(Object.keys(SORTS) as (keyof typeof SORTS)[]).map((k) => (
                   <DropdownMenuRadioItem key={k} value={k}>Sort by {SORTS[k].toLowerCase()}</DropdownMenuRadioItem>
                 ))}
@@ -238,7 +259,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="-mx-6 mt-3 flex gap-3 overflow-x-auto px-6 pb-1 [scrollbar-width:none]">
+        <div ref={tilesRef} className="-mx-6 mt-3 flex gap-3 overflow-x-auto px-6 pb-1 [scrollbar-width:none]">
           {loading && !agents.length ? (
             <>
               <Skeleton className="h-[200px] w-[210px] shrink-0 rounded-[24px]" />

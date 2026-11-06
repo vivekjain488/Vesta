@@ -12,9 +12,13 @@ import { TransactionHistory } from "@/components/TransactionHistory";
 import { agentSymbols, openLevels } from "@/components/agent-utils";
 import { AgentAvatar, EmptyState, StatusBadge, TierBadge } from "@/components/ui-perpetua";
 import { useAgents } from "@/components/useAgents";
+import { scrollToId, useHashScroll } from "@/components/motion";
+
+const SECTIONS = [["add-capital", "Add capital"], ["investments", "Investments"], ["history", "History"]] as const;
 
 export default function AgentPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params); const { agents, online } = useAgents(5000); const a = agents.find((a) => a.id === name);
+  useHashScroll(!!a);
   if (!a)
     return online === null ? (
       <div className="space-y-3 pt-6" aria-busy="true">
@@ -32,7 +36,7 @@ export default function AgentPage({ params }: { params: Promise<{ name: string }
         <Button asChild variant="ghost" size="sm" className="-ml-3">
           <Link href="/"><ArrowLeft /> Dashboard</Link>
         </Button>
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+        <div data-reveal className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
             <AgentAvatar name={a.name} className="size-14 text-base" />
             <div className="min-w-0">
@@ -45,6 +49,13 @@ export default function AgentPage({ params }: { params: Promise<{ name: string }
             {a.runtime?.tier && <TierBadge tier={a.runtime.tier} />}
           </div>
         </div>
+        <nav data-reveal aria-label="Sections" className="mt-5 flex flex-wrap gap-1.5">
+          {SECTIONS.map(([id, label]) => (
+            <Button key={id} variant="chip-outline" asChild>
+              <a href={`#${id}`} onClick={(e) => { if (scrollToId(id)) e.preventDefault(); }}>{label}</a>
+            </Button>
+          ))}
+        </nav>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">

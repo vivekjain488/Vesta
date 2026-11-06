@@ -96,7 +96,7 @@ export default function Dashboard() {
 
       {(loading || agents.length > 0) && (
         <section className="pt-8">
-          <div className="flex items-end justify-between gap-4">
+          <div data-reveal className="flex items-end justify-between gap-4">
             <h2 className="font-display text-4xl leading-none">Agents</h2>
             <Micro>{agents.length} total</Micro>
           </div>

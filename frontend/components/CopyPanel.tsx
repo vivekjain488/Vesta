@@ -45,7 +45,7 @@ export function CopyPanel({ agent, hasOpenTrade }: { agent: string; hasOpenTrade
   }
 
   return (
-    <section className="rounded-[28px] bg-trade p-6 text-foreground">
+    <section data-reveal className="rounded-[28px] bg-trade p-6 text-foreground">
       <div className="flex items-start justify-between gap-3">
         <h2 className="font-display text-[2rem] leading-none">Copy {agent}</h2>
         <Badge variant="trade-deep" size="micro">{hasOpenTrade ? "Open trade" : "Idle"}</Badge>

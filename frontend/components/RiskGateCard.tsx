@@ -1,4 +1,5 @@
 "use client";
+import { useRef } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,12 +9,17 @@ import { EmptyState, Stat, TierBadge, ValueField } from "@/components/ui-perpetu
 import { fmt } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { CppiBar } from "./CppiBar";
+import { AnimatedNumber, useSwapFade } from "./motion";
+
+const usd = (n: number) => `$${fmt(n)}`;
 import { RunwayBar } from "./RunwayBar";
 import { runwayDays, type AgentView } from "./useAgents";
 
 /** The reference's "bot settings" card, translated: RiskGate's on-chain mandate and the agent's metabolism. */
 export function RiskGateCard({ agent, loading, className }: { agent?: AgentView; loading?: boolean; className?: string }) {
   const c = agent?.chain;
+  const body = useRef<HTMLDivElement>(null);
+  useSwapFade(body, agent?.id);
   return (
     <Card className={cn("@container", className)}>
       <CardHeader>
@@ -33,7 +39,7 @@ export function RiskGateCard({ agent, loading, className }: { agent?: AgentView;
           </span>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col">
+      <CardContent ref={body} className="flex flex-1 flex-col">
         {loading && !agent ? (
           <Skeleton className="h-56 rounded-3xl" />
         ) : !agent || !c ? (
@@ -50,9 +56,9 @@ export function RiskGateCard({ agent, loading, className }: { agent?: AgentView;
               <div className="relative">
                 <Badge variant="trade-solid" size="micro" className="absolute -top-2 right-3 z-10">Set by RiskGate</Badge>
                 <div className="grid gap-2.5 @md:grid-cols-3">
-                  <ValueField label="Floor F" value={`$${fmt(c.F)}`} />
-                  <ValueField label="Cushion C" value={`$${fmt(c.C)}`} />
-                  <ValueField label="Exposure E" value={`$${fmt(c.E)}`} />
+                  <ValueField label="Floor F" value={<AnimatedNumber value={c.F} format={usd} />} />
+                  <ValueField label="Cushion C" value={<AnimatedNumber value={c.C} format={usd} />} />
+                  <ValueField label="Exposure E" value={<AnimatedNumber value={c.E} format={usd} />} />
                 </div>
               </div>
               <CppiBar V={c.V} F={c.F} C={c.C} E={c.E} className="pt-2" />

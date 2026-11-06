@@ -2,6 +2,7 @@
 /** Small presentational building blocks shared by every Perpetua screen. No data fetching here. */
 import type { ReactNode } from "react";
 import { AlertCircle, Inbox } from "lucide-react";
+import { SplitHeading } from "@/components/motion";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -63,7 +64,7 @@ export function AgentAvatar({ name, className }: { name: string; className?: str
 /** Read-only version of the reference's stepper field: label above a large value in a muted rounded box. */
 export function ValueField({ label, value, tone, className }: { label: ReactNode; value: ReactNode; tone?: string; className?: string }) {
   return (
-    <div className={cn("rounded-2xl bg-muted px-4 py-3 text-center", className)}>
+    <div data-reveal className={cn("rounded-2xl bg-muted px-4 py-3 text-center", className)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={cn("num mt-0.5 text-lg font-semibold tracking-tight", tone)}>{value}</p>
     </div>
@@ -127,11 +128,11 @@ export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: 
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        {eyebrow && <Micro>{eyebrow}</Micro>}
-        <h1 className="mt-2 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">{title}</h1>
-        {description && <p className="mt-3 max-w-2xl text-muted-foreground">{description}</p>}
+        {eyebrow && <div data-reveal="fade"><Micro>{eyebrow}</Micro></div>}
+        <SplitHeading className="mt-2 font-display text-5xl leading-[1.02] tracking-tight sm:text-6xl">{title}</SplitHeading>
+        {description && <p data-reveal className="mt-3 max-w-2xl text-muted-foreground">{description}</p>}
       </div>
-      {action}
+      {action && <div data-reveal="left">{action}</div>}
     </div>
   );
 }

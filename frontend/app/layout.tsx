@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
+import { RevealRoot } from "@/components/Reveal";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WalletProvider } from "@/components/Wallet";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="canvas-grid min-h-screen">
         <WalletProvider>
           <TooltipProvider delayDuration={150}>
-            <AppShell>{children}</AppShell>
+            <RevealRoot>
+              <AppShell>{children}</AppShell>
+            </RevealRoot>
           </TooltipProvider>
         </WalletProvider>
       </body>

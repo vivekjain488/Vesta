@@ -56,7 +56,7 @@ export function Investments({ agent }: { agent: string }) {
     const after = await refresh(); setSelected(null); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage(`Withdrawal complete.${after.sleeping ? " The agent is sleeping because its remaining capital is below its operating minimum." : " The agent can continue with the remaining capital."}`);
   }
   const kindLabel = (position: Position) => (position.kind === "cash" ? "Cash" : position.kind === "lending" ? "Protected allocation" : position.symbol);
-  return <Card>
+  return <Card id="investments" className="scroll-mt-6">
     <CardHeader>
       <CardTitle>Current investments</CardTitle>
       <CardDescription>Open allocations with a remaining balance. You can withdraw a losing investment. Withdraw all closes every position and redeems the protected allocation too.</CardDescription>

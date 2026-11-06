@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { fmt } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { useWallet } from "./Wallet";
+import { AnimatedNumber } from "./motion";
 
 const PRESETS = ["100", "500", "1000"] as const;
 
@@ -25,7 +26,7 @@ export function Funding({ agent, name, value, profit, className }: { agent: stri
   const preset = PRESETS.find((p) => p === amount) ?? (max && amount === max ? "max" : "");
 
   return (
-    <section id="add-capital" aria-label="Add capital" className={cn("flex scroll-mt-6 flex-col rounded-[28px] bg-gradient-to-b from-[#6a88fb] to-brand p-6 text-white shadow-[0_24px_60px_-32px_rgba(91,124,250,0.7)]", className)}>
+    <section data-reveal id="add-capital" aria-label="Add capital" className={cn("flex scroll-mt-6 flex-col rounded-[28px] bg-gradient-to-b from-[#6a88fb] to-brand p-6 text-white shadow-[0_24px_60px_-32px_rgba(91,124,250,0.7)]", className)}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-display text-[2rem] leading-none">Add capital</h2>
@@ -42,7 +43,9 @@ export function Funding({ agent, name, value, profit, className }: { agent: stri
 
       {value !== undefined && (
         <div className="mt-5 border-t border-white/15 pt-5">
-          <p className="num text-[3.25rem] leading-none font-semibold tracking-tight">${fmt(value ?? 0)}</p>
+          <p className="num text-[3.25rem] leading-none font-semibold tracking-tight">
+            <AnimatedNumber value={value ?? 0} format={(n) => `$${fmt(n)}`} />
+          </p>
           <p className="mt-2 text-sm text-white/80">
             {name ? `${name} capital` : "Current capital"} · Profit <span className="num font-semibold text-white">{signedUsd(profit ?? 0)}</span>
           </p>

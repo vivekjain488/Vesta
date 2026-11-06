@@ -1,3 +1,6 @@
+"use client";
+import { useRef } from "react";
+import { useBarTween } from "@/components/motion";
 import { fmt } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +17,10 @@ export function CppiBar({ V, F, C, E, zoom = true, onBrand = false, className }:
   const cushionPct = Math.max(0, Math.min(100 - floorPct, (C / span) * 100));
   const exposurePct = Math.max(0, Math.min(100, floorPct + (Math.min(E, C) / span) * 100));
   const breached = V < F;
+  const floorRef = useRef<HTMLDivElement>(null);
+  const cushionRef = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<HTMLDivElement>(null);
+  useBarTween([floorRef, cushionRef, markerRef], [{ width: `${floorPct}%` }, { left: `${floorPct}%`, width: `${cushionPct}%` }, { left: `${exposurePct}%` }], [floorPct, cushionPct, exposurePct]);
 
   return (
     <div className={className}>
@@ -22,9 +29,9 @@ export function CppiBar({ V, F, C, E, zoom = true, onBrand = false, className }:
         aria-label={`Floor ${fmt(F)} dollars, cushion ${fmt(C)} dollars, exposure budget ${fmt(E)} dollars${breached ? ", value is below the floor" : ""}`}
         className={cn("relative h-3 overflow-hidden rounded-full", onBrand ? "bg-white/20" : "bg-muted")}
       >
-        <div className={cn("absolute inset-y-0 left-0 rounded-l-full", onBrand ? "bg-white" : "bg-brand")} style={{ width: `${floorPct}%` }} />
-        <div className="absolute inset-y-0 bg-trade" style={{ left: `${floorPct}%`, width: `${cushionPct}%` }} />
-        {E > 0 && <div className={cn("absolute -inset-y-px w-[3px] rounded-full", onBrand ? "bg-foreground" : "bg-foreground")} style={{ left: `calc(${exposurePct}% - 1.5px)` }} />}
+        <div ref={floorRef} className={cn("absolute inset-y-0 left-0 w-0 rounded-l-full", onBrand ? "bg-white" : "bg-brand")} />
+        <div ref={cushionRef} className="absolute inset-y-0 left-0 w-0 bg-trade" />
+        <div ref={markerRef} className={cn("absolute -inset-y-px left-0 w-[3px] -translate-x-1/2 rounded-full bg-foreground", E <= 0 && "hidden")} />
       </div>
       <div className={cn("mt-2 flex items-center justify-between text-[11px]", onBrand ? "text-white/75" : "text-muted-foreground")}>
         <span className="flex items-center gap-1.5">

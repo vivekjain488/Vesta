@@ -10,6 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { EmptyState, Micro } from "@/components/ui-perpetua";
 import { fmt } from "@/lib/data";
 import { fetchCandles4h, supportedSymbol, type MarketSeries } from "@/lib/market";
+import { reducedMotion } from "@/lib/gsap";
 import { cn } from "@/lib/utils";
 
 export interface TradeLevels {
@@ -142,6 +143,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
   }, [series, range, levels]);
 
   const d = view ? priceDigits(view.last.c) : 2;
+  const [motion] = useState(() => !reducedMotion());
 
   return (
     <Card className={cn("gap-0 py-0", className)} aria-label={`${symbol} 4-hour price chart`}>
@@ -205,10 +207,10 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
               <YAxis yAxisId="price" domain={view.domain} hide />
               <YAxis yAxisId="vol" domain={[0, view.maxV * 3.5]} hide />
               <ChartTooltip cursor={{ stroke: "var(--border)", strokeWidth: 1 }} content={<CandleTooltip />} />
-              <RBar xAxisId="vol" yAxisId="vol" dataKey="v" fill="#E6E6E3" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+              <RBar xAxisId="vol" yAxisId="vol" dataKey="v" fill="#E6E6E3" radius={[2, 2, 0, 0]} isAnimationActive={motion} animationDuration={900} animationEasing="ease-out" />
               <RBar yAxisId="price" dataKey="range" shape={<Candle />} isAnimationActive={false} />
-              <Line yAxisId="price" dataKey="ema" type="monotone" stroke="var(--color-ema)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
-              <Line yAxisId="price" dataKey="sma" type="monotone" stroke="var(--color-sma)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
+              <Line yAxisId="price" dataKey="ema" type="monotone" stroke="var(--color-ema)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={motion} animationBegin={150} animationDuration={1400} animationEasing="ease-out" />
+              <Line yAxisId="price" dataKey="sma" type="monotone" stroke="var(--color-sma)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={motion} animationBegin={350} animationDuration={1400} animationEasing="ease-out" />
               <ReferenceLine yAxisId="price" y={view.last.c} stroke="var(--brand)" strokeDasharray="3 4" strokeOpacity={0.6} label={<LevelPill text={fmt(view.last.c, d)} fill="var(--brand)" />} />
               {view.drawn.entry != null && <ReferenceLine yAxisId="price" y={view.drawn.entry} stroke="#A3A3A3" strokeDasharray="3 4" label={<LevelPill text={`ENTRY ${fmt(view.drawn.entry, d)}`} fill="#E8E8E6" color="#111" />} />}
               {view.drawn.target != null && <ReferenceLine yAxisId="price" y={view.drawn.target} stroke="var(--trade)" strokeDasharray="3 4" label={<LevelPill text={`TARGET ${fmt(view.drawn.target, d)}`} fill="var(--trade)" color="#111" />} />}

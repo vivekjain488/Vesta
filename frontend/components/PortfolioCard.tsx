@@ -8,9 +8,11 @@ import { signedUsd } from "@/components/ui-perpetua";
 import { fmt } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { CppiBar } from "./CppiBar";
+import { AnimatedNumber } from "./motion";
 import type { DashboardAgent } from "./agent-utils";
 
-const METRICS = { value: "Value", floor: "Floor", cushion: "Cushion", exposure: "Exposure" } as const;
+const usd = (n: number) => `$${fmt(n)}`;
+const METRICS ={ value: "Value", floor: "Floor", cushion: "Cushion", exposure: "Exposure" } as const;
 type Metric = keyof typeof METRICS;
 
 /** The reference's blue wallet card: the owner's whole portfolio, summed across their funded agents. */
@@ -30,6 +32,7 @@ export function PortfolioCard({ agents, loading, className }: { agents: Dashboar
 
   return (
     <section
+      data-reveal
       aria-label="Your portfolio"
       className={cn("relative flex flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-[#6a88fb] to-brand p-6 text-white shadow-[0_24px_60px_-32px_rgba(91,124,250,0.7)]", className)}
     >
@@ -51,7 +54,7 @@ export function PortfolioCard({ agents, loading, className }: { agents: Dashboar
           <Skeleton className="h-14 w-56 rounded-2xl bg-white/20" />
         ) : (
           <p className="num text-[3.25rem] leading-none font-semibold tracking-tight" aria-live="polite">
-            ${fmt(figure)}
+            <AnimatedNumber value={figure} format={usd} />
           </p>
         )}
         <p className="mt-2 text-sm text-white/80">
