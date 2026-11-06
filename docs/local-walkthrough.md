@@ -1,4 +1,4 @@
-# Run and inspect Perpetua locally
+# Run and inspect VESTA locally
 
 ## Current integration status
 
@@ -21,7 +21,7 @@ There are two useful paths below. A complete local product exercise uses simulat
 2. Open **http://localhost:3000** and sign in with MetaMask. The signature logs you in; deposits require separate transaction confirmations.
 3. Select **Create agent**, enter a name, choose **Spot accumulation**, and set **Assets** to `LINK`. Keep the initial operating minimum at 25 USDC and exposure at 100 USDC. Sign the strategy configuration. The API creates owner-bound local vault/wallet/gate contracts.
 4. On the agent page click **Get test funds**. This adds 10,000 mock USDC and local gas to the connected wallet. It is a local-chain faucet; it does not fund Arkiv or 0G.
-5. Enter `1000` under **Add capital** and approve both the token allowance and deposit in MetaMask. Allow the app to add/switch to **Perpetua Local**, RPC `http://127.0.0.1:8545`, chain ID `31337`, currency `ETH`.
+5. Enter `1000` under **Add capital** and approve both the token allowance and deposit in MetaMask. Allow the app to add/switch to **VESTA Local**, RPC `http://127.0.0.1:8545`, chain ID `31337`, currency `ETH`.
 6. Watch **Current investments** and **Transaction history**. The backend worker runs with the page closed. Its first local accumulation opportunity should be evaluated shortly after funding; later checks follow the configured cadence. A check does not guarantee a trade. Cash, protected lending and any settled LINK holding are read from contracts.
 7. Withdraw part of the LINK position, accepting possible loss and a minimum proceeds amount. Position settlement and the MetaMask payout are separate steps. You can also withdraw directly from cash or protected lending.
 8. Try **Withdraw all**. It closes remaining token holdings and redeems every owner share, including protected lending. Confirm the wallet transaction. The portfolio should become empty and the agent should sleep. Partial withdrawals below the configured minimum also sleep it.

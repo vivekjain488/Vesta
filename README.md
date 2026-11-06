@@ -1,8 +1,8 @@
-# Perpetua
+# VESTA
 
-**Principal-protected agents that pay for their own brains.** ETHGlobal Mumbai 2026.
+**Vault-Endowed Self-funding Trading Agents** · principal-protected agents that pay for their own brains. ETHGlobal Mumbai 2026.
 
-Perpetua is an on-chain principal-protected note (Endowment-CPPI) managed by an AI agent. The agent has to earn its own inference bill. Its risk limits are enforced on-chain by **RiskGate**, a deterministic smart contract, not by trusting the AI.
+VESTA is an on-chain principal-protected note (Endowment-CPPI) managed by an AI agent. The agent has to earn its own inference bill. Its risk limits are enforced on-chain by **RiskGate**, a deterministic smart contract, not by trusting the AI.
 
 ## Ethereum chain and RPC registry on Arkiv
 
@@ -25,7 +25,7 @@ arkiv.schema = str('ethereum-registry.chain.v1') AND $creator = addr(0x0f531Abb2
 
 Add `AND chain_id = u64(16602)` for one chain, or change the schema to `ethereum-registry.rpc.v1` for endpoint entities. These broad explorer queries include older unexpired snapshots; the application reads the active completed snapshot. Creator identifies who originally published an entity even after a transfer; its current owner can still change or delete it.
 
-Reads need no writer key or Perpetua account. The local public API is `GET http://localhost:8787/registry/chains?chainId=16602`; it has no wallet/session requirement. The signed-in app has a **Chain registry** table at `/registry`. SDK schemas and direct queries work independently of our API. Anonymous Arkiv RPC has a quota; readers can obtain their own optional access key from Arkiv Hub.
+Reads need no writer key or VESTA account. The local public API is `GET http://localhost:8787/registry/chains?chainId=16602`; it has no wallet/session requirement. The signed-in app has a **Chain registry** table at `/registry`. SDK schemas and direct queries work independently of our API. Anonymous Arkiv RPC has a quota; readers can obtain their own optional access key from Arkiv Hub.
 
 The registry page also shows optional per-RPC health observations collected by our monitor: sampled availability, latency, HTTP status and chain-ID validation, with per-endpoint graphs. The observations live on the monitor host, not Arkiv. They are not an SLA. Start or inspect the local service with `pnpm registry:health-service install` / `pnpm registry:health-service status`. See [methodology and limitations](docs/rpc-health.md).
 
@@ -187,7 +187,7 @@ For the live demo (Base mainnet + 0G Galileo), a judge copies with $1 and anothe
   - optionally `ComputeTreasury.seed()` as the cold-start hibernation reserve. It is the only non-CCIP credit path, and it emits `Seeded`.
 - **After setup:** every transfer into the vault comes from an income engine (`IncomeRecorded` events), from realised PnL (`WalletPulled.realisedProfit`), or from yield. Every credit to ComputeTreasury comes from a CCIP message (`HarvestCredited`). An auditor can check this from the event logs alone.
 - 0G track disqualifiers we avoid:
-  - Perpetua is not a token launch with a chatbot attached;
+  - VESTA is not a token launch with a chatbot attached;
   - there is no revenue from the team trading its own token;
   - no human refills the agent;
   - no CCIP usage is claimed without a real CCIP Explorer message.
@@ -196,7 +196,7 @@ For the live demo (Base mainnet + 0G Galileo), a judge copies with $1 and anothe
 
 ## Sponsor tracks: what to show
 
-| prize | requirement | how Perpetua meets it | proof to collect |
+| prize | requirement | how VESTA meets it | proof to collect |
 |---|---|---|---|
 | **Definitive**: Flash advanced orders in a social app | working advanced orders, on-chain execution, demo video tagging @DefinitiveFi | agent bracket orders (entry + attached SL/TP) from an EIP-1271 AgentWallet; follower copy orders with `flashIntegratorFeeBps` | Flash order IDs, Base tx hashes, a judge's live $1 copy |
 | **0G**: Agents That Pay for Themselves | full loop with tx hashes and request IDs, unattended, spend caps, graceful degradation | earn → poke() harvest → CCIP → ComputeTreasury → ledger → TEE-verified inference. Spend caps: runtime token budget, sub-account top-up limit, treasury daily cap. 4-tier ladder | ledger before/after, chat IDs, tier switch on screen, no top-up |

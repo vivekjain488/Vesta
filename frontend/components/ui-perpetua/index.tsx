@@ -1,5 +1,5 @@
 "use client";
-/** Small presentational building blocks shared by every Perpetua screen. No data fetching here. */
+/** Small presentational building blocks shared by every VESTA screen. No data fetching here. */
 import type { ReactNode } from "react";
 import { AlertCircle, Inbox } from "lucide-react";
 import { SplitHeading } from "@/components/motion";

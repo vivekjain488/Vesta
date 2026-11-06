@@ -66,11 +66,11 @@ export default function Studio() {
   async function run(work: () => Promise<void>) { setBusy(true); setMessage(""); try { await work(); } catch (e) { setMessage((e as Error).message); } finally { setBusy(false); } }
 
   return (
-    <div className="space-y-6 pt-4 lg:pt-6">
+    <div className="max-w-4xl space-y-6 pt-4 lg:pt-6">
       <PageHeader eyebrow="New agent" title="Create your agent" description="Choose a strategy, set your preferences, and review before signing with MetaMask." />
       <ol aria-label="Agent creation progress" className="grid grid-cols-3 gap-2">{["Strategy", "Preferences", "Review"].map((label, i) => <li key={label} aria-current={step === i ? "step" : undefined} className={cn("rounded-2xl px-4 py-3 text-sm", step === i ? "bg-trade text-foreground" : "bg-muted text-muted-foreground")}><span className="mr-2 font-semibold">0{i + 1}</span>{label}</li>)}</ol>
       <p className="text-sm text-muted-foreground">Agents currently use the local test network. Live deposits and autonomous trading are not enabled.</p>
-      <div className={cn("grid gap-3", step === 2 ? "max-w-2xl" : "max-w-4xl")}>
+      <div className="grid gap-3">
         <fieldset disabled={!!savedId} className={cn("flex min-w-0 flex-col gap-3 border-0 p-0", step === 2 && "hidden")}>
           <Card className={step !== 0 ? "hidden" : ""}>
             <CardHeader>
@@ -193,7 +193,7 @@ export default function Studio() {
           </CardContent>
         </Card>
       </div>
-      <div className="flex max-w-4xl justify-between gap-3"><Button variant="outline" disabled={busy || step === 0 || !!savedId} onClick={() => setStep((s) => s - 1)}>Back</Button>{step < 2 && <Button variant="trade" disabled={busy || (step === 0 && !name.trim())} onClick={() => setStep((s) => s + 1)}>Continue</Button>}</div>
+      <div className="flex justify-between gap-3"><Button variant="outline" disabled={busy || step === 0 || !!savedId} onClick={() => setStep((s) => s - 1)}>Back</Button>{step < 2 && <Button variant="trade" disabled={busy || (step === 0 && !name.trim())} onClick={() => setStep((s) => s + 1)}>Continue</Button>}</div>
     </div>
   );
 }

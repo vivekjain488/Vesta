@@ -45,7 +45,7 @@ export default function Atlas() {
       <PageHeader
         eyebrow="Arkiv mirror · 4byte.directory, cross-checked against OpenChain"
         title="Signature Atlas"
-        description="Ethereum's function and event signatures, mirrored into Arkiv. Every entry records its source and the wallet that submitted it. Perpetua's risk-check and decoding services read it. Source agreement and successful decoding provide evidence; selector collisions mean they cannot prove a deployed contract's behavior."
+        description="Ethereum's function and event signatures, mirrored into Arkiv. Every entry records its source and the wallet that submitted it. VESTA's risk-check and decoding services read it. Source agreement and successful decoding provide evidence; selector collisions mean they cannot prove a deployed contract's behavior."
       />
       <Card>
         <CardContent className="space-y-4">

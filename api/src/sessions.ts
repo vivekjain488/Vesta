@@ -15,7 +15,7 @@ export class WalletSessions {
     for (const [k, c] of this.challenges) if (c.expires <= now) this.challenges.delete(k);
     if (this.challenges.size >= 1000) throw new Error("Too many pending sign-ins");
     const nonce = randomBytes(16).toString("hex"); const expires = now + 300000;
-    const message = createSiweMessage({ address: owner, domain: new URL(this.origin).host, uri: this.origin, version: "1", chainId, nonce, issuedAt: new Date(now), expirationTime: new Date(expires), statement: "Sign in to Perpetua. This does not authorize a transaction or transfer funds." });
+    const message = createSiweMessage({ address: owner, domain: new URL(this.origin).host, uri: this.origin, version: "1", chainId, nonce, issuedAt: new Date(now), expirationTime: new Date(expires), statement: "Sign in to VESTA. This does not authorize a transaction or transfer funds." });
     this.challenges.set(nonce, { address: owner, message, expires }); return { nonce, message };
   }
   async verify(nonce: string, signature: Hex, now = Date.now()) {

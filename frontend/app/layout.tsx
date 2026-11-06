@@ -14,8 +14,8 @@ const serif = Instrument_Serif({ weight: "400", subsets: ["latin"], variable: "-
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono-face" });
 
 export const metadata: Metadata = {
-  title: "Perpetua",
-  description: "Manage your agents and investments.",
+  title: "VESTA",
+  description: "VESTA: Vault-Endowed Self-funding Trading Agents. Manage your agents and investments.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

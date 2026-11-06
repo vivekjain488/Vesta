@@ -45,7 +45,7 @@ Anonymous RPC has a quota; readers may use their own optional Arkiv access key. 
 
 **Owners.**
 - **Signature Atlas:** a single importer wallet (`ATLAS_IMPORTER_ADDRESS`). Every read filters `ownedBy(importer)`.
-- **Perpetua data:** each agent writes from its own wallet, so `ownedBy(agent)` proves who wrote a record.
+- **VESTA data:** each agent writes from its own wallet, so `ownedBy(agent)` proves who wrote a record.
 
 **Time.** Existing Atlas/agent schemas use indexed timestamps described below; registry check/publication timestamps use explicitly named millisecond fields above.
 
@@ -63,7 +63,7 @@ Anonymous RPC has a quota; readers may use their own optional Arkiv access key. 
 
 The `atlas-uid:` prefix matters. Without it, the 4 hash bytes of a function signature are the selector itself, and collisions would come straight back. The friction log has the details.
 
-## Perpetua's own data
+## VESTA's own data
 
 | schema | indexed | stored only | links | written | expires |
 |---|---|---|---|---|---|

@@ -124,5 +124,5 @@ export function ownerAddress(value: unknown): Address {
   return getAddress(value);
 }
 export function configAuthMessage(owner: string, action: string, payload: unknown, nonce: string, expiresAt: number, audience: string): string {
-  return ["Perpetua strategy configuration v1", `Service: ${audience}`, `Owner: ${ownerAddress(owner)}`, `Action: ${action}`, `Payload: ${configHash(payload)}`, `Nonce: ${nonce}`, `Expires: ${expiresAt}`].join("\n");
+  return ["VESTA strategy configuration v1", `Service: ${audience}`, `Owner: ${ownerAddress(owner)}`, `Action: ${action}`, `Payload: ${configHash(payload)}`, `Nonce: ${nonce}`, `Expires: ${expiresAt}`].join("\n");
 }

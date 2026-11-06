@@ -1,6 +1,6 @@
 "use client";
 /**
- * Skeleton-UI illustrations (card-in-tray, logo tile, branching light-trail lines) in the Perpetua palette.
+ * Skeleton-UI illustrations (card-in-tray, logo tile, branching light-trail lines) in the VESTA palette.
  * Motion is CSS only (stroke-dash light trails, scale fills, fades), so it stays smooth and pauses for reduced motion.
  * Illustrative only: values are examples, not live data.
  */

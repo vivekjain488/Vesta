@@ -1,6 +1,6 @@
 "use client";
 /**
- * Who calls whom when a Perpetua agent trades, drawn like an agent graph: orthogonal rounded links, icon tiles with
+ * Who calls whom when a VESTA agent trades, drawn like an agent graph: orthogonal rounded links, icon tiles with
  * labels, light trails for calls (blue), answers (green) and money (orange). Illustrative, not live data.
  */
 import { Bot, Brain, Database, Link2, ShieldCheck, User, Vault, Zap, type LucideIcon } from "lucide-react";

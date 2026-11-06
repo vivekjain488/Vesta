@@ -2,11 +2,12 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { ArrowLeftRight, Bot, LayoutGrid, Loader2, LogOut, Network, Plus, Trophy, Wallet } from "lucide-react";
+import { ArrowLeftRight, Bot, Cpu, LayoutGrid, Loader2, LogOut, Network, Plus, Trophy, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Micro } from "@/components/ui-perpetua";
 import { Landing } from "@/components/landing/Landing";
+import { VestaMark } from "@/components/VestaMark";
 import { cn } from "@/lib/utils";
 import { useWallet } from "./Wallet";
 import { usePrivyGate } from "./PrivyBridge";
@@ -16,7 +17,7 @@ const NAV = [
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/trade", label: "Trading", icon: ArrowLeftRight },
   { href: "/studio", label: "Create agent", icon: Bot },
-  { href: "/runtime", label: "Hosted agents", icon: Bot },
+  { href: "/runtime", label: "Hosted agents", icon: Cpu },
   { href: "/registry", label: "Chain registry", icon: Network },
 ] as const;
 
@@ -84,23 +85,24 @@ function useActive() {
 
 function RailButton({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof LayoutGrid; active: boolean }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Link
-          href={href}
-          aria-label={label}
-          aria-current={active ? "page" : undefined}
-          className={cn(
-            "flex size-12 items-center justify-center rounded-full transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none",
-            active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-          )}
-        >
-          <Icon className="size-5" strokeWidth={1.75} />
-        </Link>
-      </TooltipTrigger>
-      <TooltipContent side="left">{label}</TooltipContent>
-    </Tooltip>
+    <Link
+      href={href}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-12 items-center gap-3.5 rounded-full px-[14px] transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none",
+        active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+      )}
+    >
+      <Icon className="size-5 shrink-0" strokeWidth={1.75} />
+      <RailLabel>{label}</RailLabel>
+    </Link>
   );
+}
+
+/** Label that fades in once the rail has widened on hover or keyboard focus. */
+function RailLabel({ children }: { children: ReactNode }) {
+  return <span className="text-sm font-medium whitespace-nowrap opacity-0 transition-opacity delay-75 duration-200 group-focus-within/nav:opacity-100 group-hover/nav:opacity-100 motion-reduce:transition-none">{children}</span>;
 }
 
 /** Desktop: slim right-edge rail, as in the reference (status + create on top, navigation pill at the bottom). */
@@ -109,8 +111,8 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
   return (
     <aside className="fixed inset-y-6 right-6 z-40 hidden w-16 flex-col items-center justify-between lg:flex" aria-label="Main navigation">
       <div data-reveal="right" className="flex flex-col items-center gap-3">
-        <Link href="/" className="font-display text-2xl leading-none" aria-label="Perpetua dashboard">
-          P<span className="text-brand">.</span>
+        <Link href="/" className="block text-foreground transition-opacity duration-150 hover:opacity-70" aria-label="VESTA dashboard">
+          <VestaMark className="h-9" />
         </Link>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -131,16 +133,13 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
           <TooltipContent side="left">Create agent</TooltipContent>
         </Tooltip>
       </div>
-      <nav data-reveal="right" className="flex flex-col items-center gap-1 rounded-full bg-card p-2 shadow-[0_1px_2px_rgba(17,17,17,0.05),0_0_0_1px_rgba(17,17,17,0.03)]">
+      {/* Slim icon pill that widens leftwards on hover/focus so every page name is readable. */}
+      <nav data-reveal="right" className="group/nav flex w-16 flex-col gap-1 self-end overflow-hidden rounded-[32px] bg-card p-2 shadow-[0_1px_2px_rgba(17,17,17,0.05),0_0_0_1px_rgba(17,17,17,0.03)] transition-[width,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-within:w-60 hover:w-60 hover:shadow-[0_18px_50px_-18px_rgba(17,17,17,0.35),0_0_0_1px_rgba(17,17,17,0.04)] motion-reduce:transition-none">
         {NAV.map((n) => <RailButton key={n.href} {...n} active={isActive(n.href)} />)}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onSignOut} aria-label="Sign out" className="flex size-12 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-muted/70 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none">
-              <LogOut className="size-5" strokeWidth={1.75} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">Sign out</TooltipContent>
-        </Tooltip>
+        <button onClick={onSignOut} aria-label="Sign out" className="flex h-12 items-center gap-3.5 rounded-full px-[14px] text-loss transition-colors duration-150 hover:bg-loss/10 focus-visible:ring-3 focus-visible:ring-loss/30 focus-visible:outline-none">
+          <LogOut className="size-5 shrink-0" strokeWidth={1.75} />
+          <RailLabel>Sign out</RailLabel>
+        </button>
       </nav>
     </aside>
   );
@@ -149,7 +148,7 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
 function MobileTopBar({ address }: { address: string }) {
   return (
     <header data-reveal="down" className="flex items-center justify-between px-4 pt-4 sm:px-6 lg:hidden">
-      <Link href="/" className="font-display text-3xl leading-none">Perpetua</Link>
+      <Link href="/" className="flex items-center gap-2.5" aria-label="VESTA dashboard"><VestaMark className="h-7" /><span className="font-display text-3xl leading-none">VESTA</span></Link>
       <span className="flex items-center gap-2 rounded-full bg-card px-3 py-1.5 shadow-[0_0_0_1px_rgba(17,17,17,0.04)]">
         <span className="size-1.5 rounded-full bg-profit" aria-hidden />
         <Micro className="text-foreground">{short(address)}</Micro>
@@ -168,7 +167,7 @@ function MobileNav({ onSignOut }: { onSignOut: () => void }) {
           <Icon className="size-5" strokeWidth={1.75} />
         </Link>
       ))}
-      <button onClick={onSignOut} aria-label="Sign out" className="flex h-11 flex-1 items-center justify-center rounded-full text-muted-foreground">
+      <button onClick={onSignOut} aria-label="Sign out" className="flex h-11 flex-1 items-center justify-center rounded-full text-loss">
         <LogOut className="size-5" strokeWidth={1.75} />
       </button>
     </nav>

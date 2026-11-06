@@ -31,7 +31,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const connect = useCallback(async (expectedAddresses?: string[]) => {
     const eth = provider(); if (!eth) throw new Error("Install or unlock MetaMask to sign in.");
     const [account] = await eth.request({ method: "eth_requestAccounts" }); const chainId = Number.parseInt(await eth.request({ method: "eth_chainId" }), 16);
-    if (!account || (expectedAddresses && !expectedAddresses.includes(account.toLowerCase()))) throw new Error("Connect the same MetaMask account in Privy and Perpetua.");
+    if (!account || (expectedAddresses && !expectedAddresses.includes(account.toLowerCase()))) throw new Error("Connect the same MetaMask account in Privy and VESTA.");
     const challenge = await response(await apiFetch("/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account, chainId }) }));
     const parsed = parseSiweMessage(challenge.message);
     if (parsed.domain !== location.host || parsed.uri !== location.origin || parsed.address?.toLowerCase() !== account.toLowerCase() || parsed.chainId !== chainId || parsed.nonce !== challenge.nonce) throw new Error("Sign-in request does not match this site or wallet");

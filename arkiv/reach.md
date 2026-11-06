@@ -11,7 +11,7 @@ The repository's own [consumer list](https://github.com/ethereum-lists/chains#us
 * Infrastructure monitors: find all chains missing an eligible public HTTPS endpoint, discover deprecated entries, or compare successive complete snapshots.
 * Registry maintainers: publish independent mirrors with their own writer identity, compare hashes/provenance, and audit what changed against a pinned Git revision.
 
-Perpetua is an actual consumer: remote chain clients, API chain reads, the direct 0G brain and 0G testnet setup use `projectRpc` / `projectTransport`, querying the Arkiv mirror rather than calling the upstream registry. Its signed-in **Chain registry** table reads public Arkiv-backed API routes. Blockchain RPC discovery is separate from 0G's model-serving API.
+VESTA is an actual consumer: remote chain clients, API chain reads, the direct 0G brain and 0G testnet setup use `projectRpc` / `projectTransport`, querying the Arkiv mirror rather than calling the upstream registry. Its signed-in **Chain registry** table reads public Arkiv-backed API routes. Blockchain RPC discovery is separate from 0G's model-serving API.
 
 ```sh
 pnpm registry:query chain 16602

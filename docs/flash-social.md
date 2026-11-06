@@ -1,6 +1,6 @@
 # Flash social limit orders
 
-Perpetua's Trading page offers a **manual**, agent-associated limit buy of WETH with USDC on Base mainnet. The selection is context; it is not automatic copying of that agent's trades. A user chooses the amount and limit and reviews a quote. Flash may require a limited onchain USDC approval, then the user signs the order. The server submits only the original wallet-bound quote, records the submission and polls Flash for its status. An accepted or submitted order is not a fill, and this flow does not attach a stop-loss. An order can remain unfilled. Nothing here uses the agent vault or claims principal protection.
+VESTA's Trading page offers a **manual**, agent-associated limit buy of WETH with USDC on Base mainnet. The selection is context; it is not automatic copying of that agent's trades. A user chooses the amount and limit and reviews a quote. Flash may require a limited onchain USDC approval, then the user signs the order. The server submits only the original wallet-bound quote, records the submission and polls Flash for its status. An accepted or submitted order is not a fill, and this flow does not attach a stop-loss. An order can remain unfilled. Nothing here uses the agent vault or claims principal protection.
 
 ## Configure
 

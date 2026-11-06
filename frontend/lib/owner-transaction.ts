@@ -19,7 +19,7 @@ export async function sendOwnerTransaction(getProvider: () => Promise<EIP1193Pro
     catch (error: any) {
       if (error?.code === 4100) throw new Error("MetaMask has not authorized this site to switch networks. Reconnect your account in MetaMask and retry.");
       if (error?.code !== 4902 || chainId !== 31337) throw error;
-      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: toHex(chainId), chainName: "Perpetua Local", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["http://127.0.0.1:8545"] }] });
+      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: toHex(chainId), chainName: "VESTA Local", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["http://127.0.0.1:8545"] }] });
     }
     eth = await getProvider();
   }

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { SplitHeading, scrollToId } from "@/components/motion";
 import { ErrorNote, Micro } from "@/components/ui-perpetua";
+import { VestaMark } from "@/components/VestaMark";
 import { cn } from "@/lib/utils";
 import { AgentGraph } from "./AgentGraph";
 import { AgentMonitor } from "./AgentMonitor";
@@ -46,7 +47,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
       <section className="relative isolate min-h-[100svh] overflow-hidden text-foreground">
         <GlowGrid />
         <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-          <span className="font-display text-3xl leading-none">Perpetua</span>
+          <span className="flex items-center gap-2.5"><VestaMark className="h-8" /><span className="font-display text-3xl leading-none">VESTA</span></span>
           <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex" aria-label="Sections">
             {[["how", "How it works"], ["decision", "One decision"], ["graph", "Under the hood"], ["metabolism", "Metabolism"]].map(([id, label]) => (
               <a key={id} href={`#${id}`} onClick={(e) => { if (scrollToId(id, 16)) e.preventDefault(); }} className="transition-colors duration-150 hover:text-foreground">{label}</a>
@@ -208,7 +209,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
         </div>
         <footer className="relative z-10 border-t border-black/10">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-xs text-foreground/80 sm:px-8">
-            <span className="font-display text-xl text-foreground">Perpetua</span>
+            <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><span className="flex items-center gap-2 text-foreground"><VestaMark className="h-5" /><span className="font-display text-xl">VESTA</span></span><span className="text-foreground/70">Vault-Endowed Self-funding Trading Agents</span></span>
             <span>Hackathon prototype. Not financial advice. Signing in does not transfer funds or authorize trades.</span>
           </div>
         </footer>

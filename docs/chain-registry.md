@@ -18,7 +18,7 @@ pnpm registry:query rpcs 8453         # Base RPC rows
 pnpm registry:query resolve 16602    # Arkiv lookup + fresh eth_chainId verification
 ```
 
-Reading uses public Arkiv RPC and does not require the writer key, a Perpetua account or permission from this team. `ARKIV_ACCESS_KEY` is optional for readers and raises the heavily limited anonymous RPC quota; get your own free key at Arkiv Hub rather than asking us for ours. A third party can query the SDK directly using the schemas and public creator address. Creator identity remains fixed after an ownership transfer; the current owner retains update and deletion rights. The importer requires Git, Node, dependencies, `ARKIV_REGISTRY_PRIVATE_KEY`, the matching `ARKIV_REGISTRY_WRITER_ADDRESS`, and gas on Rabdi. It is a real writer, not a dry-run outbox.
+Reading uses public Arkiv RPC and does not require the writer key, a VESTA account or permission from this team. `ARKIV_ACCESS_KEY` is optional for readers and raises the heavily limited anonymous RPC quota; get your own free key at Arkiv Hub rather than asking us for ours. A third party can query the SDK directly using the schemas and public creator address. Creator identity remains fixed after an ownership transfer; the current owner retains update and deletion rights. The importer requires Git, Node, dependencies, `ARKIV_REGISTRY_PRIVATE_KEY`, the matching `ARKIV_REGISTRY_WRITER_ADDRESS`, and gas on Rabdi. It is a real writer, not a dry-run outbox.
 
 Public API, also without wallet authentication:
 
