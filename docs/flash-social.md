@@ -1,0 +1,19 @@
+# Flash social limit orders
+
+Perpetua's Trading page offers a **manual**, agent-associated limit buy of WETH with USDC on Base mainnet. The selection is context; it is not automatic copying of that agent's trades. A user chooses the amount and limit and reviews a quote. Flash may require a limited onchain USDC approval, then the user signs the order. The server submits only the original wallet-bound quote, records the submission and polls Flash for its status. An accepted or submitted order is not a fill, and this flow does not attach a stop-loss. An order can remain unfilled. Nothing here uses the agent vault or claims principal protection.
+
+## Configure
+
+1. Obtain an integrator key from [Definitive](https://flash.definitive.fi/docs/getting-started), or consult [Flash's integration guide](https://flash.definitive.fi/docs/for-agents) for its publicly documented trading key. Set `FLASH_API_KEY` in the API server's `.env`. A dedicated integrator key is needed for your own fee attribution; this flow does not currently add a fee.
+Read-only quotes are available with the API key even when submission is disabled. Preview responses do not include transaction or signing payloads.
+
+2. Independently verify the current **Base** `DefinitiveFlashAllowance` settlement contract with Definitive, then set `FLASH_SOCIAL_SPENDER` to that address. The service rejects quotes whose typed-data domain or approval spender differ. Do not treat an address in a sample quote as authoritative without verification.
+3. Set `FLASH_SOCIAL_ENABLED=true` and `COPY_MAX_USD=100` (or a lower cap), and restart the API. The API must be able to reach `https://flash.definitive.fi/v1`.
+4. Connect the same MetaMask wallet used to sign in, hold USDC and ETH for gas on Base mainnet, open Trading, select an agent, choose an amount and a limit, and review the quote. Base mainnet uses real assets; Sepolia is not listed among [Flash's supported networks](https://flash.definitive.fi/docs/for-agents).
+5. Confirm any USDC approval, sign the order and check its actual status in the order list. The approval is sized by Flash to cover outstanding orders and the new order; this implementation rejects an approval larger than the new order, so users with other open orders may need to resolve those orders first. Transaction gas is paid by the wallet. Use Flash's order interface to cancel or inspect fills; cancellation is not yet implemented here.
+
+The quote expires from this API after 15 minutes or a server restart. Requests are single-use and tied to the session wallet. An attempted submission is recorded before sending it upstream. If the result is unknown, inspect Flash orders before retrying. Order history is stored locally on this server in `.perpetua/flash-social-orders.jsonl`, not yet in a shared database. Quotes, submission records and API keys require durable storage, rate limits, operational monitoring and an independent security review before a production deployment. This implementation supports direct settlement approvals, not Permit2 signatures or smart-contract wallet signatures. The operator-controlled spender setting is a security boundary.
+
+The autonomous agent bracket path is disabled for live execution until its two authorizations, partial-fill accounting, lifecycle reconciliation, cancellation and withdrawal behavior are implemented and tested. Paper results and agent leaderboard rankings are separate from live Flash orders. The existing 0G/Privy integration does not make this manual order autonomous. To qualify for the track, a funded supported network wallet and a real onchain fill must still be demonstrated, and the required video must be submitted to Discord and X.
+
+Run the isolated mock integration tests with `pnpm exec tsx --test api/test/flash-social.test.ts`. They do not submit transactions or live orders.

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/server.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@perpetua/core": "workspace:*",
@@ -17,5 +18,10 @@
     "viem": "^2.57.16",
     "dotenv": "^16.4.7"
   },
-  "devDependencies": { "@types/express": "^5.0.6", "tsx": "^4.23.15", "typescript": "~5.9.3", "@types/node": "^22.19.0" }
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "@types/node": "^22.19.0"
+  }
 }

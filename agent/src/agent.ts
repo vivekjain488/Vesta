@@ -434,6 +434,9 @@ export class PerpetuaAgent {
   }
 
   async proposeEntry(a: AssetCfg, signal: Signal, sizeUsd: number, brain: BrainResult) {
+    // The autonomous bracket path does not yet reconcile approvals, partial fills and exits.
+    // Fail closed until those lifecycle and wallet-authorization steps are implemented.
+    if (this.cfg.flash.mode === "live") throw new Error("Autonomous live Flash execution is not enabled: bracket authorization and fill reconciliation are incomplete");
     const uid = `${this.cfg.agentName}:${a.symbol}:${Date.now()}`;
     const q = await this.flash.quote({
       targetChain: this.cfg.flash.chain,

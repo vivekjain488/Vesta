@@ -22,6 +22,7 @@ import { compileStrategy } from "../../agent/src/strategy-compiler";
 import { ZeroGServiceError } from "../../agent/src/zerog-router";
 import { createStrategyCompiler, inferenceBackend, InferenceServiceError, type InferenceProvider } from "../../agent/src/inference";
 import { FlashHttp } from "../../agent/src/flash";
+import { flashSocialRouter } from "./flash-social";
 import { investments, saveExitRequest } from "./investments";
 import { WalletSessions, SESSION_COOKIE } from "./sessions";
 import { Platform } from "./platform";
@@ -449,51 +450,12 @@ app.get("/v1/outbox", (_, res) => {
   res.json(lines);
 });
 
-// ------------------------------------------------------------------------------------------- copy trading
-/**
- * Follower copy: the app builds the SAME order type for the follower, scaled to their cap, with the integrator
- * fee pointing at the agent's Flash portfolio. Followers keep custody: they sign with their own wallet (or a
- * scoped EIP-1271 session key) and the order is funded from THEIR address.
- */
-app.post("/v1/copy/quote", async (req, res) => {
-  const { agent = "Atlas", follower, capUsd, targetAsset, contraAsset } = req.body ?? {};
-  if (!follower || !capUsd) return void res.status(400).json({ error: "follower and capUsd required" });
-  // Copy trading a platform agent requires hiring it (paid in any token, delivered to the agent as 0G via CCIP).
-  if (hireService.state && hireService.agentOf(String(agent))?.platformAgent) {
-    const until = await hireService.hiredUntil(String(agent), follower as Address);
-    if (until * 1000 <= Date.now()) return void res.status(402).json({ error: "Hire this agent to copy its trades", hire: `/v1/hire/quote?agent=${encodeURIComponent(String(agent))}` });
-  }
-  const cap = Math.min(Number(capUsd), Number(process.env.COPY_MAX_USD ?? 100)); // follower safety cap
-  const st = readJson(`${STATE}/agent-${agent}.json`, { trades: {} });
-  const t = (Object.values(st.trades) as any[]).filter((x) => x.status === "open").sort((a, b) => b.openedAt - a.openedAt)[0];
-  if (!t) return void res.status(404).json({ error: "agent has no open trade to copy" });
-  const body = {
-    targetChain: process.env.FLASH_CHAIN ?? "base",
-    contraChain: process.env.FLASH_CHAIN ?? "base",
-    targetAsset: targetAsset ?? process.env.COPY_TARGET_ASSET,
-    contraAsset: contraAsset ?? process.env.COPY_CONTRA_ASSET ?? "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    side: "buy",
-    qty: Math.min(cap, t.sizeUsd).toFixed(2),
-    orderType: "market",
-    funderAddress: follower,
-    maxSlippage: "0.01",
-    attachedBracket: { takeProfit: { notionalPrice: Number(t.target).toFixed(6) }, stopLoss: { notionalPrice: Number(t.stop).toFixed(6) } },
-    flashIntegratorFeeBps: process.env.FLASH_INTEGRATOR_FEE_BPS ?? "20",
-  };
-  if (!FLASH_KEY) return void res.json({ simulated: true, request: body, note: "set FLASH_API_KEY for a live Flash quote" });
-  const r = await fetch(`${FLASH_BASE}/quote`, { method: "POST", headers: { "x-definitive-api-key": FLASH_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
-  res.status(r.status).json({ request: body, quote: await r.json() });
-});
-
-app.post("/v1/copy/order", async (req, res) => {
-  const { order, agent = "Atlas" } = req.body ?? {};
-  if (!order?.userSignature) return void res.status(400).json({ error: "signed order required" });
-  order.flashIntegratorFeeBps = process.env.FLASH_INTEGRATOR_FEE_BPS ?? "20"; // must equal the quote's
-  appendFileSync(`${STATE}/copy-orders.jsonl`, JSON.stringify({ at: Date.now(), agent, follower: order.funderAddress, qty: order.qty }) + "\n");
-  if (!FLASH_KEY) return void res.json({ simulated: true, orderId: crypto.randomUUID() });
-  const r = await fetch(`${FLASH_BASE}/order`, { method: "POST", headers: { "x-definitive-api-key": FLASH_KEY, "content-type": "application/json" }, body: JSON.stringify(order) });
-  res.status(r.status).json(await r.json());
-});
+// Flash limit orders are funded and signed by the signed-in follower, never by an agent vault.
+app.use("/v1/flash", flashSocialRouter(STATE, sessionOwner, (name) => {
+  if (platform.agents().some((a) => a.platformAgent && a.name === name)) return true;
+  const paper = readJson(`${STATE}/paper-leaderboard.json`, { rows: [] });
+  return Array.isArray(paper.rows) && paper.rows.some((row: any) => row.name === name);
+}));
 
 app.get("/health", (_, res) => void res.json({ ok: true, paid: !!PAY_TO, network: NETWORK, inference: { backend: INFERENCE_BACKEND, testingOnly: INFERENCE_BACKEND === "openrouter" } }));
 

@@ -11,6 +11,7 @@ interface WalletCtx {
   connect(expectedAddresses?: string[]): Promise<string | null>; logout(): Promise<void>;
   signMessage(message: string): Promise<string>; signTypedDataJson(json: string): Promise<string>;
   sendTransaction(to: string, data: string, chainId: number, value?: bigint): Promise<string>;
+  switchChain(chainId: number): Promise<void>; waitForTransaction(hash: string): Promise<void>;
 }
 const Ctx = createContext<WalletCtx | null>(null);
 export const useWallet = () => { const value = useContext(Ctx); if (!value) throw new Error("WalletProvider missing"); return value; };
@@ -42,6 +43,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     address, ready, kind: "injected", connect, logout,
     signMessage: async (message) => { if (!address) throw new Error("Sign in first"); return provider().request({ method: "personal_sign", params: [toHex(message), address] }); },
     signTypedDataJson: async (json) => { if (!address) throw new Error("Sign in first"); return provider().request({ method: "eth_signTypedData_v4", params: [address, json] }); },
+    switchChain: async (chainId) => {
+      const eth = provider(); if (!eth || !address) throw new Error("Sign in with MetaMask first");
+      if (Number.parseInt(await eth.request({ method: "eth_chainId" }), 16) !== chainId) await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: toHex(chainId) }] });
+      if (Number.parseInt(await eth.request({ method: "eth_chainId" }), 16) !== chainId) throw new Error("Select Base in MetaMask");
+    },
+    waitForTransaction: async (hash) => {
+      const eth = provider(); if (!eth) throw new Error("Wallet unavailable; check the approval on Base before retrying");
+      for (let i = 0; i < 90; i++) {
+        const receipt = await eth.request({ method: "eth_getTransactionReceipt", params: [hash] });
+        if (receipt) { if (receipt.status !== "0x1") throw new Error("USDC approval transaction reverted"); return; }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      throw new Error("Approval is still pending. Check its status before requesting a fresh quote.");
+    },
     sendTransaction: async (to, data, chainId, value) => {
       if (!address) throw new Error("Sign in with MetaMask first");
       return sendOwnerTransaction(() => privy.ownerProvider(address), address, to, data, chainId, value);

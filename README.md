@@ -286,3 +286,7 @@ This is roughly breakeven, and that's the point: **trading is upside, not food.*
 - 0G ledger deposit tx · inference chat/request IDs (TEE verified) · tier-switch screenshot:
 - x402 buyer addresses (`.perpetua/x402-buyers.jsonl`) · judge copy-trade order ID:
 - Arkiv importer wallet · import-run entity keys · agent wallets (ownedBy):
+
+### Flash social trading
+
+The Trading page includes a follower-signed Base WETH/USDC limit-order flow and is linked from the leaderboard. Configuration, the test command, supported wallet flow, and current limitations are documented in [Flash social orders](docs/flash-social.md). This is a manual live order, separate from the agent's paper leaderboard and the disabled autonomous live bracket execution.
