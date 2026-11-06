@@ -1,41 +1,152 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-@theme {
-  --color-ink: #0d0c0a;
-  --color-panel: #15130f;
-  --color-line: #2a261f;
-  --color-paper: #ece6d8;
-  --color-dim: #8f8778;
-  --color-floor: #7fcfa0; /* protected: pi * P + R */
-  --color-cushion: #f0b445; /* the only money that may be risked */
-  --color-exposure: #ff6a45; /* E = min(m * C, E_max) */
-  --color-alive: #9be36b;
-  --color-dead: #b04a3c;
+/* Light-only design system. Visual reference: frontend/design/reference.png */
 
+@theme inline {
+  /* Fonts: Instrument Serif for display, Geist for UI + money, JetBrains Mono for micro labels / hashes. */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-serif), "Times New Roman", serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Brand + semantic accents */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-trade: var(--trade);
+  --color-trade-hover: var(--trade-hover);
+  --color-trade-soft: var(--trade-soft);
+  --color-trade-deep: var(--trade-deep);
+  --color-profit: var(--profit);
+  --color-loss: var(--loss);
+  --color-faint: var(--faint);
+  --color-hover: var(--hover);
+
+  /* CPPI meaning: floor is protected (blue), cushion may be risked (orange), exposure is the black marker. */
+  --color-floor: var(--brand);
+  --color-cushion: var(--trade);
+  --color-exposure: var(--foreground);
+
+  /* Legacy names still used by older markup; mapped onto the light palette so nothing renders dark. */
+  --color-ink: var(--background);
+  --color-panel: var(--card);
+  --color-line: var(--border);
+  --color-paper: var(--foreground);
+  --color-dim: var(--muted-foreground);
+  --color-alive: var(--profit);
+  --color-dead: var(--loss);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.15);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-html,
-body {
-  background: var(--color-ink);
-  color: var(--color-paper);
+:root {
+  --background: #f5f5f3;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f1f0;
+  --secondary-foreground: #111111;
+  --muted: #f1f1f0;
+  --muted-foreground: #777777;
+  --accent: #eaeae8;
+  --accent-foreground: #111111;
+  --destructive: #e35d5b;
+  --border: #e8e8e6;
+  --input: #e8e8e6;
+  --ring: #5b7cfa;
+  --chart-1: #5b7cfa;
+  --chart-2: #ff8500;
+  --chart-3: #111111;
+  --chart-4: #a3a3a3;
+  --chart-5: #16a36a;
+  --radius: 0.875rem;
+
+  --brand: #5b7cfa;
+  --brand-hover: #4869eb;
+  --brand-soft: #e9eeff;
+  --trade: #ff8500;
+  --trade-hover: #ea7600;
+  --trade-soft: #fff0df;
+  --trade-deep: #c25e00;
+  --profit: #16a36a;
+  --loss: #e35d5b;
+  --faint: #a3a3a3;
+  --hover: #eaeae8;
 }
 
-body {
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
+/* Faint grid like the reference backdrop. */
+.canvas-grid {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(to right, rgb(17 17 17 / 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(17 17 17 / 0.025) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Tabular figures for any money / price / percentage. */
 .num {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-.grain {
-  background-image: radial-gradient(rgba(236, 230, 216, 0.035) 1px, transparent 1px);
-  background-size: 3px 3px;
+/* Mono uppercase micro label, as in the reference (COPY, PNL%, STOP LOSS). */
+.micro {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 @keyframes pulse-soft {
@@ -54,5 +165,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pulse-soft {
     animation: none;
+  }
+  * {
+    transition-duration: 0ms !important;
   }
 }

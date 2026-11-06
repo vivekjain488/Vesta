@@ -1,13 +1,61 @@
 "use client";
 import { use } from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Funding } from "@/components/Funding";
 import { Investments } from "@/components/Investments";
+import { MarketChart } from "@/components/MarketChart";
+import { RiskGateCard } from "@/components/RiskGateCard";
 import { TransactionHistory } from "@/components/TransactionHistory";
+import { agentSymbols, openLevels } from "@/components/agent-utils";
+import { AgentAvatar, EmptyState, StatusBadge, TierBadge } from "@/components/ui-perpetua";
 import { useAgents } from "@/components/useAgents";
-import { fmt } from "@/lib/data";
+
 export default function AgentPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params); const { agents, online } = useAgents(5000); const a = agents.find((a) => a.id === name);
-  if (!a) return <p className="pt-12 text-dim">{online === null ? "Loading agent…" : "Agent not found in your account."}</p>;
-  return <div className="pt-12"><Link href="/" className="text-sm text-dim">← Dashboard</Link><div className="mt-5 flex items-end justify-between gap-4"><div><h1 className="font-display text-5xl">{a.name}</h1><p className="mt-3 text-paper/70">{a.strategy}</p></div><span className="text-sm capitalize text-dim">{a.status?.replaceAll("_", " ")}</span></div><div className="my-7 grid grid-cols-2 gap-4"><div className="border border-line bg-panel p-4"><p className="text-xs text-dim">Current capital</p><p className="num mt-2 text-2xl">${fmt(a.chain?.V ?? 0)}</p></div><div className="border border-line bg-panel p-4"><p className="text-xs text-dim">Cumulative profit</p><p className={`num mt-2 text-2xl ${(a.profit ?? 0) < 0 ? "text-exposure" : "text-alive"}`}>{(a.profit ?? 0) >= 0 ? "+" : "−"}${fmt(Math.abs(a.profit ?? 0))}</p></div></div><Funding agent={a.id} /><Investments agent={a.id} /><TransactionHistory agent={a.id} /></div>;
+  if (!a)
+    return online === null ? (
+      <div className="space-y-3 pt-6" aria-busy="true">
+        <p className="sr-only">Loading agent…</p>
+        <Skeleton className="h-16 w-80 rounded-2xl" />
+        <Skeleton className="h-[420px] rounded-[28px]" />
+      </div>
+    ) : (
+      <EmptyState className="mt-10" title="Agent not found in your account." action={<Button asChild variant="outline"><Link href="/">Back to dashboard</Link></Button>} />
+    );
+
+  return (
+    <div className="space-y-3">
+      <div className="pt-4 pb-5 lg:pt-6">
+        <Button asChild variant="ghost" size="sm" className="-ml-3">
+          <Link href="/"><ArrowLeft /> Dashboard</Link>
+        </Button>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <AgentAvatar name={a.name} className="size-14 text-base" />
+            <div className="min-w-0">
+              <h1 className="truncate font-display text-5xl leading-none tracking-tight sm:text-6xl">{a.name}</h1>
+              <p className="mt-2 text-muted-foreground">{a.strategy}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={a.status} />
+            {a.runtime?.tier && <TierBadge tier={a.runtime.tier} />}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <MarketChart symbols={agentSymbols(a)} levels={openLevels(a)} agentName={a.name} />
+          <RiskGateCard agent={a} />
+        </div>
+        <Funding agent={a.id} name={a.name} value={a.chain?.V ?? 0} profit={a.profit ?? 0} className="lg:sticky lg:top-6 lg:self-start" />
+      </div>
+      <Investments agent={a.id} />
+      <TransactionHistory agent={a.id} />
+    </div>
+  );
 }

@@ -5,6 +5,15 @@ import { createPublicClient, encodeFunctionData, formatUnits, http, parseUnits, 
 import { apiFetch, API } from "@/lib/api";
 import { deployment, fmt } from "@/lib/data";
 import { useWallet } from "./Wallet";
+import { Loader2, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { EmptyState, PnL, StatusNote } from "@/components/ui-perpetua";
 interface Position { id: string; kind: "cash" | "lending" | "spot"; token: Address; symbol: string; decimals: number; amount: string; valueUsd: number | null; unrealizedPnlUsd: number | null }
 interface Portfolio { owner: Address; vault: Address; riskGate: Address; ownerShares: string; maxWithdraw: string; maxRedeem: string; sleeping: boolean; minimumOperatingCapital: string; investments: Position[]; chainId: number; blockNumber: string; exitExecutionAvailable: boolean; withdrawalPending: boolean }
 export function Investments({ agent }: { agent: string }) {
@@ -46,9 +55,41 @@ export function Investments({ agent }: { agent: string }) {
     else { await body(await apiFetch(`/v1/agents/${agent}/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resume: true }) })); await refresh(); setSelected(null); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Position closed with no proceeds. No funds were transferred to your wallet."); return; }
     const after = await refresh(); setSelected(null); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage(`Withdrawal complete.${after.sleeping ? " The agent is sleeping because its remaining capital is below its operating minimum." : " The agent can continue with the remaining capital."}`);
   }
-  return <section className="rounded-sm border border-line bg-panel p-5"><div className="flex flex-wrap items-center justify-between gap-4"><h2 className="font-display text-3xl">Current investments</h2><button disabled={busy || !portfolio || BigInt(portfolio.ownerShares) === 0n} onClick={() => run(withdrawAll)} className="border border-cushion px-4 py-2 text-sm disabled:opacity-40">Withdraw all</button></div><p className="mt-3 text-sm text-dim">Open allocations with a remaining balance. You can withdraw a losing investment. Withdraw all closes every position and redeems the protected allocation too.</p>
-    {portfolio && <><div className="mt-5 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="text-xs uppercase text-dim"><tr><th className="py-3">Investment</th><th>Balance</th><th>Value</th><th>Profit / loss</th><th /></tr></thead><tbody>{portfolio.investments.map((position) => <tr key={position.id} className="border-t border-line"><td className="py-4">{position.kind === "cash" ? "Cash" : position.kind === "lending" ? "Protected allocation" : position.symbol}</td><td className="num">{Number(position.amount).toLocaleString(undefined, { maximumFractionDigits: 8 })} {position.symbol}</td><td className="num">{position.valueUsd === null ? "Quote unavailable" : `$${fmt(position.valueUsd)}`}</td><td className={`num ${position.unrealizedPnlUsd !== null && position.unrealizedPnlUsd < 0 ? "text-exposure" : "text-dim"}`}>{position.unrealizedPnlUsd === null ? "—" : `${position.unrealizedPnlUsd >= 0 ? "+" : "−"}$${fmt(Math.abs(position.unrealizedPnlUsd))}`}</td><td className="text-right"><button disabled={busy || (position.kind === "spot" && !portfolio.exitExecutionAvailable)} className="border border-line px-3 py-1 disabled:opacity-40" onClick={() => { setSelected(position); setQuantity(position.amount); setMinimum(position.valueUsd !== null ? (position.valueUsd * 0.99).toFixed(6) : ""); setLossConsent(false); }}>Withdraw</button></td></tr>)}</tbody></table></div>{portfolio.investments.length === 0 && <p className="py-6 text-sm text-dim">No current investments. Add funds to start.</p>}<p className="mt-4 text-xs text-dim">{formatUnits(BigInt(portfolio.maxWithdraw), 6)} USDC is immediately withdrawable. The agent sleeps below {formatUnits(BigInt(portfolio.minimumOperatingCapital), 6)} USDC remaining capital. Quoted values can change before execution.</p>
-    {selected && <div className="mt-5 space-y-3 border-t border-line pt-4"><h3 className="text-lg">Withdraw {selected.kind === "lending" ? "from the protected allocation" : selected.symbol}</h3><label className="block text-sm">Amount ({selected.symbol})<input aria-label="Investment withdrawal amount" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="ml-3 w-44 border border-line bg-ink p-2" /></label>{selected.kind === "spot" && <><label className="block text-sm">Minimum proceeds (USDC)<input value={minimum} onChange={(e) => setMinimum(e.target.value)} className="ml-3 w-44 border border-line bg-ink p-2" /></label><label className="block text-sm"><input type="checkbox" checked={lossConsent} onChange={(e) => setLossConsent(e.target.checked)} className="mr-2" />I understand this exit can realise a loss.</label></>}<div className="flex gap-3"><button disabled={busy || !quantity || (selected.kind === "spot" && (!lossConsent || !minimum))} onClick={() => run(withdrawSelected)} className="bg-cushion px-4 py-2 text-ink disabled:opacity-40">{busy ? "Processing…" : "Confirm withdrawal"}</button><button disabled={busy} onClick={() => setSelected(null)} className="px-3 py-2 text-dim">Cancel</button></div></div>}
-    {(portfolio.sleeping || portfolio.withdrawalPending) && BigInt(portfolio.ownerShares) > 0n && <button disabled={busy} className="mt-4 border border-line px-3 py-2 text-sm" onClick={() => run(async () => { if (portfolio.sleeping) await transaction(portfolio.riskGate, encodeFunctionData({ abi: riskGateAbi, functionName: "resumeAfterWithdrawal" }), portfolio); await body(await apiFetch(`/v1/agents/${agent}/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resume: true }) })); await refresh(); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Agent resumed."); })}>Resume agent</button>}</>}{message && <p role="status" className="mt-4 text-sm">{message}</p>}
-  </section>;
+  const kindLabel = (position: Position) => (position.kind === "cash" ? "Cash" : position.kind === "lending" ? "Protected allocation" : position.symbol);
+  return <Card>
+    <CardHeader>
+      <CardTitle>Current investments</CardTitle>
+      <CardDescription>Open allocations with a remaining balance. You can withdraw a losing investment. Withdraw all closes every position and redeems the protected allocation too.</CardDescription>
+      <CardAction><Button variant="outline" disabled={busy || !portfolio || BigInt(portfolio.ownerShares) === 0n} onClick={() => run(withdrawAll)}>Withdraw all</Button></CardAction>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      {!portfolio && !message && <Skeleton className="h-32 rounded-3xl" />}
+      {portfolio && <>
+        {portfolio.investments.length === 0 ? <EmptyState title="No current investments">Add funds to start.</EmptyState> : <Table>
+          <TableHeader><TableRow className="hover:bg-transparent">
+            <TableHead>Investment</TableHead><TableHead>Balance</TableHead><TableHead>Value</TableHead><TableHead>Profit / loss</TableHead><TableHead className="text-right"><span className="sr-only">Action</span></TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{portfolio.investments.map((position) => <TableRow key={position.id} data-state={selected?.id === position.id ? "selected" : undefined}>
+            <TableCell className="font-medium">{kindLabel(position)}</TableCell>
+            <TableCell className="num">{Number(position.amount).toLocaleString(undefined, { maximumFractionDigits: 8 })} {position.symbol}</TableCell>
+            <TableCell className="num">{position.valueUsd === null ? <span className="text-muted-foreground">Quote unavailable</span> : `$${fmt(position.valueUsd)}`}</TableCell>
+            <TableCell><PnL value={position.unrealizedPnlUsd} /></TableCell>
+            <TableCell className="text-right"><Button variant="soft" size="sm" disabled={busy || (position.kind === "spot" && !portfolio.exitExecutionAvailable)} onClick={() => { setSelected(position); setQuantity(position.amount); setMinimum(position.valueUsd !== null ? (position.valueUsd * 0.99).toFixed(6) : ""); setLossConsent(false); }}>Withdraw</Button></TableCell>
+          </TableRow>)}</TableBody>
+        </Table>}
+        <p className="text-xs text-muted-foreground"><span className="num font-medium text-foreground">{formatUnits(BigInt(portfolio.maxWithdraw), 6)} USDC</span> is immediately withdrawable. The agent sleeps below <span className="num">{formatUnits(BigInt(portfolio.minimumOperatingCapital), 6)} USDC</span> remaining capital. Quoted values can change before execution.</p>
+        {selected && <div className="space-y-4 rounded-3xl bg-muted p-5">
+          <h3 className="font-display text-2xl leading-none">Withdraw {selected.kind === "lending" ? "from the protected allocation" : selected.symbol}</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label htmlFor="withdraw-qty">Amount ({selected.symbol})</Label><Input id="withdraw-qty" aria-label="Investment withdrawal amount" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="num bg-card" /></div>
+            {selected.kind === "spot" && <div className="space-y-1.5"><Label htmlFor="withdraw-min">Minimum proceeds (USDC)</Label><Input id="withdraw-min" value={minimum} onChange={(e) => setMinimum(e.target.value)} className="num bg-card" /></div>}
+          </div>
+          {selected.kind === "spot" && <Label className="flex items-center gap-2.5 font-normal"><Checkbox checked={lossConsent} onCheckedChange={(v) => setLossConsent(v === true)} />I understand this exit can realise a loss.</Label>}
+          <div className="flex flex-wrap gap-2"><Button variant="trade" disabled={busy || !quantity || (selected.kind === "spot" && (!lossConsent || !minimum))} onClick={() => run(withdrawSelected)}>{busy ? <><Loader2 className="animate-spin" /> Processing…</> : "Confirm withdrawal"}</Button><Button variant="ghost" disabled={busy} onClick={() => setSelected(null)}>Cancel</Button></div>
+        </div>}
+        {(portfolio.sleeping || portfolio.withdrawalPending) && BigInt(portfolio.ownerShares) > 0n && <Button variant="outline" disabled={busy} onClick={() => run(async () => { if (portfolio.sleeping) await transaction(portfolio.riskGate, encodeFunctionData({ abi: riskGateAbi, functionName: "resumeAfterWithdrawal" }), portfolio); await body(await apiFetch(`/v1/agents/${agent}/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resume: true }) })); await refresh(); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Agent resumed."); })}><RotateCcw /> Resume agent</Button>}
+      </>}
+      {message && <StatusNote>{message}</StatusNote>}
+    </CardContent>
+  </Card>;
 }
