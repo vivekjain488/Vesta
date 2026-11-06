@@ -15,7 +15,7 @@ export function publicAddress(address: string): boolean {
     return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && [0, 168].includes(b)) || (a === 198 && [18, 19, 51].includes(b)) || (a === 203 && b === 0));
   }
   // Global-unicast only. IPv4-mapped, loopback, ULA, link-local and documentation space are excluded.
-  if (isIP(value) === 6) return /^[23][0-9a-f]{3}:/.test(value) && !value.startsWith("2001:db8:");
+  if (isIP(value) === 6) return /^[23][0-9a-f]{3}:/.test(value) && !value.startsWith("2001:db8:") && !value.startsWith("2002:") && !/^2001:0*:/.test(value);
   return false;
 }
 

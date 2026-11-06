@@ -9,5 +9,5 @@ export { latestMarket, marketCandles, marketHistory } from "./market-store";
 export type { MarketSnapshot, CandleWindow } from "./market-data";
 export { safeMarketError } from "./market-publisher";
 export * from "./registry-schemas";
-export { registryHead, registryChains, registryChain, registryRpcs, registryOwner } from "./registry-queries";
+export { registryHead, registryChains, registryChain, registryRpcs, registryCreator, registryOwner } from "./registry-queries";
 export { projectRpc, projectTransport, resolveRegistryRpc } from "./registry-resolver";
