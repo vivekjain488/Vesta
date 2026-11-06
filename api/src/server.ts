@@ -20,7 +20,7 @@ import { checkEntry, riskGateAbi, STRATEGY_TEMPLATES, templateConfig, type RiskC
 import { AgentDefinitions, type ConfigAction } from "./agent-definitions";
 import { compileStrategy } from "../../agent/src/strategy-compiler";
 import { ZeroGServiceError } from "../../agent/src/zerog-router";
-import { createInference, inferenceBackend, InferenceServiceError, type InferenceProvider } from "../../agent/src/inference";
+import { createStrategyCompiler, inferenceBackend, InferenceServiceError, type InferenceProvider } from "../../agent/src/inference";
 import { FlashHttp } from "../../agent/src/flash";
 import { investments, saveExitRequest } from "./investments";
 import { WalletSessions, SESSION_COOKIE } from "./sessions";
@@ -185,9 +185,9 @@ app.post("/v1/strategy/compile", async (req, res) => {
     compiling = true;
     try {
       if (!compiler) {
-        compiler = await createInference({ maxTokensPerHour: 20000, maxTokensPerDay: 50000, stateFile: resolve(STATE, `${INFERENCE_BACKEND}-compiler-budget.json`) });
+        compiler = createStrategyCompiler({ maxTokensPerHour: 20000, maxTokensPerDay: 50000, stateFile: resolve(STATE, "openrouter-compiler-budget.json") });
       }
-      res.json(await compileStrategy(compiler, req.body.payload?.prompt));
+      res.json(await compileStrategy(compiler, req.body.payload?.prompt, req.body.payload?.profile));
     } finally { compiling = false; }
   } catch (e) { if (e instanceof ZeroGServiceError || e instanceof InferenceServiceError) res.status(e.status).json({ error: e.message, code: e.code, requestId: e.requestId }); else res.status(400).json({ error: (e as Error).message }); }
 });

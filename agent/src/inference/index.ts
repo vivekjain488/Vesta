@@ -10,6 +10,11 @@ export interface InferenceOptions {
   args?: string[]; env?: NodeJS.ProcessEnv; send?: typeof fetch;
   maxTokensPerHour?: number; maxTokensPerDay?: number; timeoutMs?: number; stateFile?: string;
 }
+/** Strategy drafting has its own testing provider; hosted execution selection is unchanged. */
+export function createStrategyCompiler(options: InferenceOptions = {}): InferenceProvider {
+  const env = options.env ?? process.env;
+  return new OpenRouterInference({ apiKey: env.OPENROUTER_API_KEY ?? "", modelSmall: "qwen/qwen3.7-flash", maxTokensPerHour: options.maxTokensPerHour ?? 20000, maxTokensPerDay: options.maxTokensPerDay ?? 50000, timeoutMs: options.timeoutMs, stateFile: options.stateFile, disableReasoning: true }, options.send);
+}
 export function inferenceBackend(args = process.argv.slice(2), env = process.env): InferenceBackend {
   if (args.some((arg) => arg.startsWith("--openrouter=") || arg.startsWith("--openrouter-"))) throw new Error("Use --openrouter without a value");
   if (args.includes("--openrouter")) return "openrouter";

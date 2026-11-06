@@ -48,6 +48,7 @@ export default function Studio() {
   const [name, setName] = useState(""); const [config, setConfig] = useState(templateConfig("spot-momentum"));
   const [profile, setProfile] = useState<RiskProfile>("balanced"); const [personality, setPersonality] = useState("");
   const [prompt, setPrompt] = useState(""); const [notes, setNotes] = useState<string[]>([]); const [unresolved, setUnresolved] = useState(false);
+  const [compiledFor, setCompiledFor] = useState<{ prompt: string; profile: RiskProfile } | null>(null);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
   const body = async (r: Response) => { const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; };
   function edit(change: (c: StrategyConfig) => void) { setConfig((previous) => { const next = structuredClone(previous); change(next); return next; }); }
@@ -82,7 +83,7 @@ export default function Studio() {
                 type="single"
                 spacing={2.5}
                 value={config.template}
-                onValueChange={(v) => { if (!v) return; setConfig(applyRiskProfile(templateConfig(v as StrategyConfig["template"]), profile)); setUnresolved(false); setNotes([]); }}
+                onValueChange={(v) => { if (!v) return; setConfig(applyRiskProfile(templateConfig(v as StrategyConfig["template"]), profile)); setCompiledFor(null); setUnresolved(false); setNotes([]); }}
                 className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2"
                 aria-label="Strategy template"
               >
@@ -119,19 +120,20 @@ export default function Studio() {
           <Card>
             <CardHeader>
               <CardTitle>Or describe your strategy</CardTitle>
-              <CardDescription>Your configured AI provider drafts a configuration from your description. Review every parameter before creating the agent.</CardDescription>
+              <CardDescription>Qwen3.7 Flash on OpenRouter drafts a configuration from your strategy and selected risk personality. Review the settings before creating the agent.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-[22px] bg-muted p-2">
                 <Label htmlFor="strategy-prompt" className="sr-only">Describe your strategy</Label>
-                <Textarea id="strategy-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={4000} rows={4} className="min-h-28 resize-none bg-transparent hover:bg-transparent focus-visible:bg-card" placeholder="Describe your goals, preferred assets, and risk limits." />
+                <Textarea id="strategy-prompt" value={prompt} onChange={(e) => { setPrompt(e.target.value); setNotes([]); setUnresolved(false); }} maxLength={4000} rows={4} className="min-h-28 resize-none bg-transparent hover:bg-transparent focus-visible:bg-card" placeholder="Describe your goals, preferred assets, and risk limits." />
                 <div className="flex items-center justify-between gap-2 px-2 pt-2 pb-1">
                   <Micro>{prompt.trim().length < 10 ? "At least 10 characters" : `${prompt.length} / 4000`}</Micro>
-                  <Button variant="chip" disabled={busy || prompt.trim().length < 10} onClick={() => run(async () => { const result = await signed("compile", { prompt }, "/v1/strategy/compile"); setConfig(result.config); setNotes([...result.assumptions, ...result.unsupportedRequirements]); setUnresolved(result.requiresClarification); })}>
+                  <Button variant="chip" disabled={busy || prompt.trim().length < 10} onClick={() => run(async () => { setCompiledFor(null); const result = await signed("compile", { prompt, profile }, "/v1/strategy/compile"); setConfig(result.config); setNotes([...result.assumptions, ...result.unsupportedRequirements]); setUnresolved(result.requiresClarification); setCompiledFor({ prompt, profile }); })}>
                     {busy ? <Loader2 className="animate-spin" /> : <Sparkles />} Generate strategy
                   </Button>
                 </div>
               </div>
+              {prompt.trim() && (!compiledFor || compiledFor.prompt !== prompt || compiledFor.profile !== profile) && <p className="text-sm text-muted-foreground">Generate the configuration for the current description and risk personality before creating the agent.</p>}
               {notes.length > 0 && (
                 <ul className="space-y-1.5">
                   {notes.map((n, i) => <li key={i} className="rounded-2xl bg-brand-soft px-4 py-2.5 text-sm">{n}</li>)}
@@ -171,9 +173,9 @@ export default function Studio() {
               </Alert>
             )}
             <div className="pt-3">
-              <Button size="xl" className="w-full" disabled={busy || !name.trim() || unresolved || config.market !== "spot"} onClick={() => run(async () => {
+              <Button size="xl" className="w-full" disabled={busy || !name.trim() || unresolved || config.market !== "spot" || (!!prompt.trim() && (!compiledFor || compiledFor.prompt !== prompt || compiledFor.profile !== profile))} onClick={() => run(async () => {
                 const validated = validateStrategyConfig(config);
-                const instructions = [RISK_PROFILES[profile].instructions, prompt.trim(), personality.trim()].filter(Boolean).join("\n\n");
+                const instructions = [prompt.trim() && `Owner strategy: ${prompt.trim()}`, personality.trim() && `Additional owner preferences: ${personality.trim()}`, `Risk personality (secondary to explicit owner strategy): ${RISK_PROFILES[profile].instructions}`].filter(Boolean).join("\n\n");
                 if (instructions.length > 4000) throw new Error("Strategy description and personality together must be at most 4000 characters");
                 setMessage("Review and sign your strategy in MetaMask…");
                 const definition = await signed("create", { name, instructions, config: validated, status: "draft" }, "/v1/agent-definitions");

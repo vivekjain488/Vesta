@@ -10,6 +10,7 @@ export class InferenceServiceError extends Error {
 export interface OpenRouterConfig {
   apiKey: string; modelSmall: string; modelLarge?: string; timeoutMs?: number;
   maxTokensPerHour: number; maxTokensPerDay: number; stateFile?: string;
+  disableReasoning?: boolean;
 }
 
 export class OpenRouterInference implements InferenceProvider {
@@ -50,7 +51,7 @@ export class OpenRouterInference implements InferenceProvider {
       try {
         response = await this.send("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.apiKey}`, "X-OpenRouter-Title": "Perpetua harness testing" },
-          body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2, stream: false }),
+          body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2, stream: false, ...(this.cfg.disableReasoning ? { reasoning: { enabled: false } } : {}) }),
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
       } catch (error) {

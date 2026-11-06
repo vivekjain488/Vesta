@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { templateConfig, tierFor } from "../src";
-import { acceptsInference, assertInferenceConfigured, createInference, inferenceBackend, OpenRouterInference } from "../../../agent/src/inference";
+import { acceptsInference, assertInferenceConfigured, createInference, createStrategyCompiler, inferenceBackend, OpenRouterInference } from "../../../agent/src/inference";
 import { compileStrategy } from "../../../agent/src/strategy-compiler";
 
 const policy = { ...tierFor(72), maxPromptTokens: 4000 };
@@ -91,5 +91,17 @@ describe("OpenRouter adapter", () => {
     const draft = await compileStrategy(provider, "Accumulate BTC cautiously");
     expect(draft.config).toEqual(config);
     expect(draft.proof).toMatchObject({ backend: "openrouter", testingOnly: true, verified: null, costOg: null, verificationSource: "openrouter" });
+  });
+  it("uses Qwen3.7 Flash with a 2000-token output cap and includes the selected personality in strategy drafts", async () => {
+    const config = templateConfig("spot-dca");
+    const send = vi.fn(async (_url: unknown, _init?: RequestInit) => reply({ choices: [{ message: { content: JSON.stringify({ config, assumptions: ["Selected a BTC accumulation strategy"], unsupportedRequirements: [] }) }, finish_reason: "stop" }] }));
+    const provider = createStrategyCompiler({ env: { OPENROUTER_API_KEY: "test", OPENROUTER_MODEL: "other/model", INFERENCE_PROVIDER: "0g-direct" }, send: send as typeof fetch });
+    const draft = await compileStrategy(provider, "Accumulate BTC cautiously on pullbacks", "cautious");
+    const request = JSON.parse(String(send.mock.calls[0][1]?.body));
+    expect(request).toMatchObject({ model: "qwen/qwen3.7-flash", max_tokens: 2000, reasoning: { enabled: false } });
+    expect(JSON.parse(request.messages[1].content)).toMatchObject({ strategy: "Accumulate BTC cautiously on pullbacks", riskPersonality: "cautious" });
+    expect(draft.config.template).toBe("spot-dca"); expect(draft.proof.backend).toBe("openrouter");
+    await expect(compileStrategy(provider, "Accumulate BTC cautiously", "invalid" as any)).rejects.toThrow("Unknown risk profile");
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
