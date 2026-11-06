@@ -19,8 +19,8 @@ import { resolve } from "node:path";
 import { checkEntry, riskGateAbi, STRATEGY_TEMPLATES, templateConfig, type RiskCheckRequest } from "@perpetua/core";
 import { AgentDefinitions, type ConfigAction } from "./agent-definitions";
 import { compileStrategy } from "../../agent/src/strategy-compiler";
-import { ZeroGBrain, type Brain } from "../../agent/src/zerog";
-import { ZeroGRouterBrain, ZeroGServiceError } from "../../agent/src/zerog-router";
+import { ZeroGServiceError } from "../../agent/src/zerog-router";
+import { createInference, inferenceBackend, InferenceServiceError, type InferenceProvider } from "../../agent/src/inference";
 import { FlashHttp } from "../../agent/src/flash";
 import { investments, saveExitRequest } from "./investments";
 import { WalletSessions, SESSION_COOKIE } from "./sessions";
@@ -29,11 +29,13 @@ import { chainOperation, localPriceUsd, prepareLocalWithdrawal, refreshLocalRisk
 import { deployLocalAgent, localFaucet } from "./local-agents";
 import { pendingWithdrawals, finishWithdrawals, startLocalRuntime } from "./local-runtime";
 import { registryRouter } from "./registry";
+import { runtimeRouter } from "./runtime";
 import { latestMarket, marketCandles, marketHistory, safeMarketError, ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
 import { createPublicClient, erc20Abi, hexToString, http, keccak256, toBytes, parseUnits, formatUnits, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const PORT = Number(process.env.API_PORT ?? 8787);
+const INFERENCE_BACKEND = inferenceBackend();
 const STATE = resolve(process.env.PERPETUA_STATE_DIR ?? resolve(new URL("../..", import.meta.url).pathname, ".perpetua"));
 const PAY_TO = process.env.X402_PAY_TO as Address | undefined; // agent income wallet (forwarded into the vault via recordIncome)
 const NETWORK = process.env.X402_NETWORK ?? "eip155:84532"; // Base Sepolia; "eip155:8453" for Base mainnet
@@ -61,7 +63,7 @@ app.use((req, res, next) => {
   res.setHeader("vary", "Origin");
   res.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type, x-payment, payment-signature");
-  res.setHeader("access-control-expose-headers", "x-payment-response, payment-response");
+  res.setHeader("access-control-expose-headers", "x-payment-response, payment-response, x-perpetua-chain-degraded");
   next();
 });
 app.options(/.*/, (_, res) => void res.sendStatus(204));
@@ -89,8 +91,9 @@ const requireAgentOwner = async (req: express.Request, res: express.Response, ne
 };
 app.get("/v1/dashboard", async (req, res) => {
   try {
-    const rows = await Promise.all(platform.agents().map((a) => platform.summary(a)));
-    const owned = rows.filter((a) => a.owner.toLowerCase() === sessionOwner(req).toLowerCase()).map((a) => ({ ...a, status: pendingWithdrawals(platform, a.id).length ? "withdrawing" : a.status }));
+    const rows = await Promise.all(platform.agents().map((a) => platform.summary(a).catch(() => null)));
+    if (rows.some((a) => a === null)) res.setHeader("x-perpetua-chain-degraded", "true");
+    const owned = rows.filter((a): a is NonNullable<typeof a> => a !== null).filter((a) => a.owner.toLowerCase() === sessionOwner(req).toLowerCase()).map((a) => ({ ...a, status: pendingWithdrawals(platform, a.id).length ? "withdrawing" : a.status }));
     const bound = new Set(owned.map((a) => a.id));
     const drafts = definitions.list(sessionOwner(req)).filter((a) => !bound.has(a.id)).map((a) => ({ id: a.id, name: a.name, status: a.status, strategy: a.config.template, riskTier: "balanced", chain: null, runtime: null, profit: 0 }));
     res.json([...owned, ...drafts]);
@@ -99,6 +102,11 @@ app.get("/v1/dashboard", async (req, res) => {
 app.get("/v1/leaderboard", async (_, res) => {
   try { const rows = await Promise.all(platform.agents().filter((a) => a.platformAgent).map((a) => platform.summary(a))); res.json(rows.sort((a, b) => b.profit - a.profit).map((a) => ({ name: a.name, profit: a.profit }))); }
   catch (e) { res.status(503).json({ error: (e as Error).message }); }
+});
+app.get("/v1/paper-leaderboard", (_, res) => {
+  const file = `${STATE}/paper-leaderboard.json`;
+  try { if (!existsSync(file)) return void res.json(null); res.json(JSON.parse(readFileSync(file, "utf8"))); }
+  catch { res.status(503).json({ error: "Paper competition results are unavailable" }); }
 });
 app.get("/v1/history/:agent", requireAgentOwner, async (req, res) => {
   try { res.json(await platform.history(String(req.params.agent))); } catch (e) { res.status(503).json({ error: (e as Error).message }); }
@@ -134,11 +142,11 @@ app.post("/v1/agent-definitions/:id/deploy", async (req, res) => {
   } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
 app.get("/v1/network", async (req, res) => {
-  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", executionMode: process.env.FLASH_MODE ?? "sim", aiMode: process.env.ZG_MODE ?? "sim", candleSource: process.env.CANDLE_SOURCE ?? "kraken", balanceUsdc: formatUnits(balance, 6) }); }
+  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", executionMode: process.env.FLASH_MODE ?? "sim", aiMode: INFERENCE_BACKEND === "openrouter" ? "openrouter" : process.env.ZG_MODE ?? "sim", candleSource: process.env.CANDLE_SOURCE ?? "kraken", balanceUsdc: formatUnits(balance, 6) }); }
   catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
 app.post("/v1/local-faucet", async (req, res) => { try { res.json(await localFaucet(platform, sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); } });
-let compiler: Brain | undefined;
+let compiler: InferenceProvider | undefined;
 let compiling = false;
 const requireConfigAuth = async (req: express.Request, action: ConfigAction, payload: unknown) => {
   const { owner, nonce, signature } = req.body ?? {};
@@ -172,21 +180,19 @@ app.put("/v1/agent-definitions/:id", async (req, res) => {
 app.post("/v1/strategy/compile", async (req, res) => {
   try {
     await requireConfigAuth(req, "compile", req.body.payload);
-    if (process.env.CONFIG_COMPILER_ENABLED !== "true" || !(process.env.ZG_MODE === "router" && process.env.ZG_API_KEY || process.env.ZG_MODE === "live" && process.env.ZG_PRIVATE_KEY && process.env.ZG_PROVIDER_SMALL)) return void res.status(503).json({ error: "Live 0G strategy compiler is not configured. Select and edit a template." });
+    if (process.env.CONFIG_COMPILER_ENABLED !== "true") return void res.status(503).json({ error: "Strategy compiler is not enabled. Select and edit a template." });
     if (compiling) return void res.status(429).json({ error: "Compiler busy; retry later" });
     compiling = true;
     try {
       if (!compiler) {
-        if (process.env.ZG_MODE === "router") compiler = new ZeroGRouterBrain({ apiKey: process.env.ZG_API_KEY!, baseUrl: process.env.ZG_BASE_URL ?? "https://router-api.0g.ai/v1", modelSmall: process.env.ZG_MODEL_SMALL ?? "0gm-1.0-35b-a3b", modelLarge: process.env.ZG_MODEL_LARGE ?? "glm-5.2", maxTokensPerHour: 20000, maxTokensPerDay: 50000, stateFile: resolve(STATE, "0g-router-compiler-budget.json") });
-        else {
-        const next = new ZeroGBrain({ rpc: process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai", privateKey: process.env.ZG_PRIVATE_KEY as Hex, providerLarge: process.env.ZG_PROVIDER_LARGE ?? "", providerSmall: process.env.ZG_PROVIDER_SMALL ?? "", subAccountTopUpOg: Number(process.env.ZG_SUBACCOUNT_TOPUP_OG ?? 1), minLedgerOg: Number(process.env.ZG_MIN_LEDGER_OG ?? 3), maxTokensPerHour: 10_000, maxTokensPerDay: 50_000 });
-        compiler = await next.init();
-        }
+        compiler = await createInference({ maxTokensPerHour: 20000, maxTokensPerDay: 50000, stateFile: resolve(STATE, `${INFERENCE_BACKEND}-compiler-budget.json`) });
       }
       res.json(await compileStrategy(compiler, req.body.payload?.prompt));
     } finally { compiling = false; }
-  } catch (e) { if (e instanceof ZeroGServiceError) res.status(e.status).json({ error: e.message, code: e.code, requestId: e.requestId }); else res.status(400).json({ error: (e as Error).message }); }
+  } catch (e) { if (e instanceof ZeroGServiceError || e instanceof InferenceServiceError) res.status(e.status).json({ error: e.message, code: e.code, requestId: e.requestId }); else res.status(400).json({ error: (e as Error).message }); }
 });
+
+app.use("/v1/runtime", runtimeRouter(platform, definitions, sessionOwner, requireConfigAuth));
 
 // Shared market observations are read back from the configured, owner-filtered Arkiv mirror.
 app.get("/v1/market/status", (_, res) => {
@@ -462,7 +468,7 @@ app.post("/v1/copy/order", async (req, res) => {
   res.status(r.status).json(await r.json());
 });
 
-app.get("/health", (_, res) => void res.json({ ok: true, paid: !!PAY_TO, network: NETWORK }));
+app.get("/health", (_, res) => void res.json({ ok: true, paid: !!PAY_TO, network: NETWORK, inference: { backend: INFERENCE_BACKEND, testingOnly: INFERENCE_BACKEND === "openrouter" } }));
 
 app.listen(PORT, () => console.log(`[api] http://localhost:${PORT}  (state ${STATE})`));
 startLocalRuntime(platform, definitions);

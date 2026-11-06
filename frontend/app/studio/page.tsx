@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Minus, Plus, Sparkles, TriangleAlert } from "lucide-react";
-import { configAuthMessage, STRATEGY_TEMPLATES, templateConfig, validateStrategyConfig, type StrategyConfig } from "@perpetua/core";
+import { applyRiskProfile, configAuthMessage, RISK_PROFILES, STRATEGY_TEMPLATES, templateConfig, validateStrategyConfig, type RiskProfile, type StrategyConfig } from "@perpetua/core";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import { Micro, PageHeader, StatusNote } from "@/components/ui-perpetua";
 import { apiFetch, API } from "@/lib/api";
 import { useWallet } from "@/components/Wallet";
 import { ActionSheet, useActionFlow, type FlowStep } from "@/components/ActionSheet";
-import { ZeroGText } from "@/components/ZeroG";
 import { cn } from "@/lib/utils";
 
 const CREATE_STEPS: FlowStep[] = [
@@ -47,6 +46,7 @@ function NumberField({ id, label, value, step, min, max, onChange }: { id: strin
 export default function Studio() {
   const router = useRouter(); const wallet = useWallet();
   const [name, setName] = useState(""); const [config, setConfig] = useState(templateConfig("spot-momentum"));
+  const [profile, setProfile] = useState<RiskProfile>("balanced"); const [personality, setPersonality] = useState("");
   const [prompt, setPrompt] = useState(""); const [notes, setNotes] = useState<string[]>([]); const [unresolved, setUnresolved] = useState(false);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
   const body = async (r: Response) => { const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; };
@@ -82,7 +82,7 @@ export default function Studio() {
                 type="single"
                 spacing={2.5}
                 value={config.template}
-                onValueChange={(v) => { if (!v) return; setConfig(templateConfig(v as StrategyConfig["template"])); setUnresolved(false); setNotes([]); }}
+                onValueChange={(v) => { if (!v) return; setConfig(applyRiskProfile(templateConfig(v as StrategyConfig["template"]), profile)); setUnresolved(false); setNotes([]); }}
                 className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2"
                 aria-label="Strategy template"
               >
@@ -107,9 +107,19 @@ export default function Studio() {
           </Card>
 
           <Card>
+            <CardHeader><CardTitle>Personality and risk</CardTitle><CardDescription>Choose starting limits and describe how your agent should weigh opportunities. You can review and edit the limits before signing.</CardDescription></CardHeader>
+            <CardContent className="space-y-4">
+              <ToggleGroup type="single" value={profile} onValueChange={(v) => { if (!v) return; const next = v as RiskProfile; setProfile(next); setConfig((c) => applyRiskProfile(c, next)); }} className="grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label="Risk personality">
+                {(Object.keys(RISK_PROFILES) as RiskProfile[]).map((key) => <ToggleGroupItem key={key} value={key} className="h-auto flex-col items-start gap-1 rounded-2xl bg-muted p-3 text-left whitespace-normal data-[state=on]:ring-2 data-[state=on]:ring-brand"><span className="font-medium">{RISK_PROFILES[key].label}</span><span className="text-xs font-normal text-muted-foreground">{RISK_PROFILES[key].description}</span></ToggleGroupItem>)}
+              </ToggleGroup>
+              <div className="space-y-1.5"><Label htmlFor="personality">Additional personality instructions</Label><Textarea id="personality" value={personality} onChange={(e) => setPersonality(e.target.value)} maxLength={2500} placeholder="For example: favor trend breakouts, take profits gradually, and avoid trading on weak evidence." /><p className="text-xs text-muted-foreground">Personality guides analysis and sizing; it cannot override the signed limits or guarantee results.</p></div>
+            </CardContent>
+          </Card>
+
+          <Card>
             <CardHeader>
               <CardTitle>Or describe your strategy</CardTitle>
-              <CardDescription><ZeroGText text="0G drafts a configuration from your description. Review every parameter before creating the agent." /></CardDescription>
+              <CardDescription>Your configured AI provider drafts a configuration from your description. Review every parameter before creating the agent.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-[22px] bg-muted p-2">
@@ -141,7 +151,7 @@ export default function Studio() {
               <Label htmlFor="assets">Assets</Label>
               <Input id="assets" value={config.symbols.join(", ")} onChange={(e) => edit((c) => { c.symbols = e.target.value.toUpperCase().split(",").map((s) => s.trim()); })} />
             </div>
-            <NumberField id="max-exposure" label="Maximum trading exposure (USDC)" value={config.risk.maxNotionalUsd} step={50} min={1} onChange={(n) => edit((c) => { c.risk.maxNotionalUsd = n; })} />
+            <NumberField id="max-exposure" label="Maximum proposal (USDC)" value={config.risk.maxNotionalUsd} step={50} min={1} onChange={(n) => edit((c) => { c.risk.maxNotionalUsd = n; })} />
             <NumberField id="risk-per-trade" label="Risk per trade (%)" value={config.risk.riskPerTradePct} step={0.05} min={0.01} max={1} onChange={(n) => edit((c) => { c.risk.riskPerTradePct = n; })} />
             <NumberField id="sleep-below" label="Sleep below remaining capital (USDC)" value={config.compute.minimumCapitalUsd} step={10} min={1} max={1000} onChange={(n) => edit((c) => { c.compute.minimumCapitalUsd = n; })} />
             <NumberField id="premium-from" label="Premium model from allocated capital (USDC)" value={config.compute.premiumCapitalThresholdUsd} step={500} min={100} onChange={(n) => edit((c) => { c.compute.premiumCapitalThresholdUsd = n; })} />
@@ -162,8 +172,11 @@ export default function Studio() {
             )}
             <div className="pt-3">
               <Button size="xl" className="w-full" disabled={busy || !name.trim() || unresolved || config.market !== "spot"} onClick={() => run(async () => {
-                const validated = validateStrategyConfig(config); setMessage("Review and sign your strategy in MetaMask…");
-                const definition = await signed("create", { name, config: validated, status: "draft" }, "/v1/agent-definitions");
+                const validated = validateStrategyConfig(config);
+                const instructions = [RISK_PROFILES[profile].instructions, prompt.trim(), personality.trim()].filter(Boolean).join("\n\n");
+                if (instructions.length > 4000) throw new Error("Strategy description and personality together must be at most 4000 characters");
+                setMessage("Review and sign your strategy in MetaMask…");
+                const definition = await signed("create", { name, instructions, config: validated, status: "draft" }, "/v1/agent-definitions");
                 setMessage("Creating your agent contracts…"); await body(await apiFetch(`/v1/agent-definitions/${definition.id}/deploy`, { method: "POST" })); router.push(`/agent/${definition.id}`);
               })}>{busy ? <><Loader2 className="animate-spin" /> Working…</> : "Create agent"}</Button>
             </div>

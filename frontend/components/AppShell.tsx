@@ -14,6 +14,7 @@ const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutGrid },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/studio", label: "Create agent", icon: Bot },
+  { href: "/runtime", label: "Hosted agents", icon: Bot },
   { href: "/registry", label: "Chain registry", icon: Network },
 ] as const;
 

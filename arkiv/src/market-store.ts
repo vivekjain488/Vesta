@@ -38,12 +38,12 @@ export async function latestMarket(symbol: string, opts: { maxAgeMs?: number; ow
   validateSnapshot(data, Date.now(), opts.maxAgeMs ?? 45000);
   return { entityKey: row.$key, writer: owner, publishedAtMs: Number(column(row.published_at_ms)), ageMs: Date.now() - Math.min(data.sourceAtMs, data.book.atMs, data.openInterestAtMs, data.observedAtMs), data };
 }
-export async function marketCandles(symbol: string, limit = 400, owner = marketWriterAddress()) {
+export async function marketCandles(symbol: string, limit = 400, owner = marketWriterAddress(), options: { requireLatest?: boolean } = {}) {
   marketSymbol(symbol); if (!Number.isInteger(limit) || limit < 1 || limit > 400) throw new Error("Candle limit must be 1–400");
   const result = await (arkivPublic() as any).select().from(MarketCandleWindow).where(and(eq("symbol", symbol), eq("venue", "binance-usdm"), eq("interval", "4h"))).ownedBy(owner).limit(2).fetch();
   if (result.entities.length !== 1) throw new Error("No unique published candle window found");
   const row = result.entities[0]; const data = validateCandles(decodeMarketRow(row, true));
-  if (data.lastClosedAtMs !== Math.floor(Date.now() / 14400000) * 14400000 - 1) throw new Error("Arkiv candle mirror is missing the latest closed candle");
+  if (options.requireLatest !== false && data.lastClosedAtMs !== Math.floor(Date.now() / 14400000) * 14400000 - 1) throw new Error("Arkiv candle mirror is missing the latest closed candle");
   return { entityKey: row.$key, writer: owner, ...data, bars: data.bars.slice(-limit) };
 }
 export async function marketHistory(symbol: string, beforeMs = Date.now() + 1, limit = 50, owner = marketWriterAddress()) {

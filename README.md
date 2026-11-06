@@ -124,7 +124,7 @@ See the [local walkthrough and integration status](docs/local-walkthrough.md) fo
 
 ## Quickstart (local, no keys needed)
 
-Requires Node ≥ 22.10, pnpm 10, and Foundry (`brew install foundry`).
+Requires Node ≥ 22.13, pnpm 10, and Foundry (`brew install foundry`).
 
 ```bash
 pnpm install

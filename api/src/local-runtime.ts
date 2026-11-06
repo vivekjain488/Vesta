@@ -18,7 +18,7 @@ export function finishWithdrawals(platform: Platform, id: string, status: "compl
 export function startLocalRuntime(platform: Platform, definitions: AgentDefinitions) {
   const workers = new Map<string, { revision: number; agent: PerpetuaAgent; next: number }>(); let running = false;
   const tick = async () => {
-    if (running || process.env.FLASH_MODE !== "sim") return; running = true;
+    if (running || process.env.FLASH_MODE !== "sim" || process.env.HOSTED_RUNTIME_ENABLED === "true") return; running = true;
     try {
       if (await platform.pub.getChainId() !== 31337) return;
       for (const deployed of platform.agents().filter((a) => a.platformAgent)) {

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
-    "hosted": "tsx src/hosted.ts",
+    "hosted": "tsx src/runtime/main.ts",
+    "hosted:paper": "tsx src/hosted.ts",
     "once": "tsx src/main.ts --once",
     "typecheck": "tsc --noEmit -p ."
   },

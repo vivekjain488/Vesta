@@ -18,12 +18,19 @@ export interface AgentDefinition {
   id: string;
   owner: Address;
   name: string;
+  instructions?: string;
   revision: number;
   status: "draft" | "paper" | "sleeping";
   config: StrategyConfig;
   configHash: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export function normalizedAgentName(value: string): string {
+  const normalized = value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
+  if (!/^[\p{L}\p{N} _-]{1,60}$/u.test(normalized)) throw new Error("Name must contain 1–60 letters, digits, spaces, underscores or hyphens");
+  return normalized;
 }
 
 export const STRATEGY_TEMPLATES = [
@@ -33,6 +40,21 @@ export const STRATEGY_TEMPLATES = [
   { id: "perp-trend", label: "Futures trend", market: "perpetual", description: "Paper research: long/short closed-candle breakouts, held over hours or days." },
   { id: "perp-range", label: "Futures range reversion", market: "perpetual", description: "Paper research: long/short oversold or overbought entries in ranges." },
 ] as const;
+
+/** Reviewable presets, not predictions of returns or maximum losses. */
+export const RISK_PROFILES = {
+  cautious: { label: "Cautious", description: "Smaller orders and stronger entry confirmation.", maxNotionalUsd: 50, riskPerTradePct: 0.1, maxDailyLossPct: 0.75, minScore: 0.55, minAgreeing: 4, minHoldSeconds: 7200, instructions: "Prioritize capital preservation. Require strong, corroborated evidence before increasing exposure; size conservatively and actively consider reducing existing exposure when risk rises." },
+  balanced: { label: "Balanced", description: "Moderate order size and entry confirmation.", maxNotionalUsd: 100, riskPerTradePct: 0.25, maxDailyLossPct: 2, minScore: 0.35, minAgreeing: 3, minHoldSeconds: 3600, instructions: "Balance opportunity and downside. Use moderate position sizes and weigh evidence for both increasing and reducing exposure." },
+  aggressive: { label: "Aggressive", description: "Larger orders and a lower entry threshold, within the configured limits.", maxNotionalUsd: 250, riskPerTradePct: 0.75, maxDailyLossPct: 4, minScore: 0.15, minAgreeing: 2, minHoldSeconds: 900, instructions: "Seek opportunities more actively and consider larger positions when evidence supports them. Accept more volatility within the configured risk limits; do not trade without a reason." },
+} as const;
+export type RiskProfile = keyof typeof RISK_PROFILES;
+export function applyRiskProfile(config: StrategyConfig, profile: RiskProfile): StrategyConfig {
+  const p = RISK_PROFILES[profile]; if (!p) throw new Error("Unknown risk profile");
+  const c = structuredClone(config);
+  c.risk.maxNotionalUsd = p.maxNotionalUsd; c.risk.riskPerTradePct = p.riskPerTradePct; c.risk.maxDailyLossPct = p.maxDailyLossPct;
+  c.parameters.minScore = p.minScore; c.parameters.minAgreeing = p.minAgreeing; c.execution.minHoldSeconds = Math.max(p.minHoldSeconds, c.execution.assumedDelaySeconds * 10);
+  return validateStrategyConfig(c);
+}
 
 export function templateConfig(template: StrategyConfig["template"]): StrategyConfig {
   if (!STRATEGY_TEMPLATES.some((t) => t.id === template)) throw new Error("Unknown strategy template");

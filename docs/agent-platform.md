@@ -1,5 +1,7 @@
 # Configurable hosted agents
 
+The new shared-portfolio minute harness is documented in [Hosted runtime](hosted-runtime.md). `pnpm hosted` now starts that durable service; the earlier paper-only service below is available with `pnpm --filter @perpetua/agent hosted:paper`. The existing local product remains the default unless `HOSTED_RUNTIME_ENABLED=true` is configured.
+
 ## Current local product
 
 Open **http://localhost:3000**. MetaMask sign-in uses a domain-bound SIWE challenge, single-use signature verification and an HttpOnly session cookie. All `/v1` API routes require a session; dashboard, investment and history reads check wallet ownership. Logging out hides the application. Sessions are currently held in one API process and require another sign-in after restart. EOA MetaMask signatures are supported; contract-wallet authentication is not yet implemented.

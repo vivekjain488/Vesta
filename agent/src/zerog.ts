@@ -9,31 +9,15 @@ import { SpendCap, type TierPolicy } from "@perpetua/core";
 import { keccak256, toBytes, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { projectRpc } from "@perpetua/arkiv";
-
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-export interface BrainResult {
-  content: string;
-  verificationSource?: "0g-router";
-  billing?: Record<string, unknown> | null;
-  chatId: string;
-  model: string;
-  provider: string;
-  verified: boolean | null; // broker.inference.processResponse
-  tee: { text: string; signature: Hex; signer: Hex } | null; // the exact TEE-signed text, for RiskGate
-  tokens: number;
-  costOg: number;
-}
+import type { ChatMessage, InferenceResult as BrainResult } from "./inference/types";
+export type { ChatMessage, InferenceResult as BrainResult } from "./inference/types";
 
 export interface Brain {
   readonly mode: "live" | "sim";
   readonly fundingMode?: "router";
   ledgerOg(): Promise<number>;
   depositOg(amount: number): Promise<string>;
-  think(policy: TierPolicy, messages: ChatMessage[], maxTokens?: number): Promise<BrainResult | null>;
+  think(policy: TierPolicy, messages: ChatMessage[], maxTokens?: number, signal?: AbortSignal): Promise<BrainResult | null>;
   teeSigner(model: "large" | "small"): Promise<Hex | null>;
   caps(): ReturnType<SpendCap["snapshot"]>;
 }
@@ -129,7 +113,7 @@ export class ZeroGBrain implements Brain {
     await this.broker.ledger.transferFund(provider, "inference", amount);
   }
 
-  async think(policy: TierPolicy, messages: ChatMessage[], maxTokens = 600): Promise<BrainResult | null> {
+  async think(policy: TierPolicy, messages: ChatMessage[], maxTokens = 600, signal?: AbortSignal): Promise<BrainResult | null> {
     if (!policy.model) return null; // Starving / Hibernate: rules only
     const provider = policy.model === "large" ? this.cfg.providerLarge : this.cfg.providerSmall;
     if (!provider) return null;
@@ -144,7 +128,7 @@ export class ZeroGBrain implements Brain {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ messages, model, max_tokens: maxTokens, temperature: 0.2 }),
-      signal: AbortSignal.timeout(60000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000),
     });
     if (!res.ok) throw new Error(`0G provider ${provider} -> ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data: any = await res.json();

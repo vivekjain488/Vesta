@@ -53,8 +53,10 @@ describe("owner isolation and signed mutations", () => {
   function store() { const dir = mkdtempSync(join(tmpdir(), "perpetua-config-")); temporary.push(dir); return new AgentDefinitions(dir, "http://localhost:8787"); }
   it("supports multiple agents per owner with independent IDs and revisions", () => {
     const s = store(); const payload = { name: "Same name", status: "draft", config: config() };
-    const a = s.save(owner.address, payload); const b = s.save(owner.address, payload);
-    expect(a.id).not.toBe(b.id); expect(s.list(owner.address)).toHaveLength(2); expect(s.list(other.address)).toHaveLength(0);
+    const a = s.save(owner.address, payload); const b = s.save(owner.address, { ...payload, name: "Another agent" });
+    expect(() => s.save(owner.address, { ...payload, name: " same NAME " })).toThrow("already exists");
+    expect(s.save(other.address, payload).name).toBe("Same name");
+    expect(a.id).not.toBe(b.id); expect(s.list(owner.address)).toHaveLength(2); expect(s.list(other.address)).toHaveLength(1);
     expect(() => s.save(other.address, { ...payload, revision: a.revision }, a.id)).toThrow("does not own");
     expect(s.save(owner.address, { ...payload, revision: a.revision }, a.id).revision).toBe(2);
     expect(() => s.save(owner.address, { ...payload, revision: a.revision }, a.id)).toThrow("reload");

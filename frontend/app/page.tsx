@@ -17,7 +17,7 @@ import { useAgents } from "@/components/useAgents";
 import { fmt } from "@/lib/data";
 
 export default function Dashboard() {
-  const { agents: rows, online } = useAgents();
+  const { agents: rows, online, chainDegraded } = useAgents();
   const agents = rows as DashboardAgent[];
   const loading = online === null;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -72,7 +72,9 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      {online && agents.length === 0 && (
+      {online && chainDegraded && <Alert className="rounded-3xl border-0 bg-muted"><WifiOff /><AlertTitle>On-chain data is unavailable.</AlertTitle><AlertDescription>Some deployed agents cannot be loaded until their network is reachable. Saved drafts remain available.</AlertDescription></Alert>}
+
+      {online && !chainDegraded && agents.length === 0 && (
         <Card className="items-start px-8 py-10">
           <Micro>Get started</Micro>
           <h3 className="font-display text-4xl leading-none">Start with your first agent</h3>

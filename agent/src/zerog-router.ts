@@ -43,7 +43,7 @@ export class ZeroGRouterBrain implements Brain {
     }
     this.cap.record(tokens); return true;
   }
-  async think(policy: TierPolicy, messages: ChatMessage[], maxTokens = 600): Promise<BrainResult | null> {
+  async think(policy: TierPolicy, messages: ChatMessage[], maxTokens = 600, signal?: AbortSignal): Promise<BrainResult | null> {
     if (!policy.model || this.busy || Date.now() < this.blockedUntil) return null;
     if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 8192) throw new Error("Invalid inference output limit");
     const input = messages.reduce((sum, m) => sum + Buffer.byteLength(m.content, "utf8") + 16, 0);
@@ -54,7 +54,7 @@ export class ZeroGRouterBrain implements Brain {
     try {
       let response: Response;
       try {
-        response = await this.send(`${this.base}/chat/completions`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.apiKey}`, "X-Client-Request-Id": clientId, "X-0G-Provider-Trust-Mode": "verified", "X-0G-Provider-Sort": "price" }, body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2, stream: false, verify_tee: true }), signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 60000) });
+          response = await this.send(`${this.base}/chat/completions`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.apiKey}`, "X-Client-Request-Id": clientId, "X-0G-Provider-Trust-Mode": "verified", "X-0G-Provider-Sort": "price" }, body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2, stream: false, verify_tee: true }), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(this.cfg.timeoutMs ?? 60000)]) : AbortSignal.timeout(this.cfg.timeoutMs ?? 60000) });
       } catch { throw new ZeroGServiceError(503, "unreachable", "The configured 0G Router could not be reached. Check its network/endpoint; no simulated response was substituted.", clientId); }
       const data: any = await response.json().catch(() => ({}));
       const requestId = response.headers.get("X-Request-ID") ?? data.x_0g_trace?.request_id ?? data.request_id ?? clientId;

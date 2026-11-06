@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getJson, type AgentRuntime, type OnChainAgent } from "@/lib/data";
+import { type AgentRuntime, type OnChainAgent } from "@/lib/data";
+import { apiFetch } from "@/lib/api";
 
 export interface AgentView {
   id: string;
@@ -17,12 +18,16 @@ export interface AgentView {
 export function useAgents(intervalMs = 8000) {
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [online, setOnline] = useState<boolean | null>(null);
+  const [chainDegraded, setChainDegraded] = useState(false);
   useEffect(() => {
     let stop = false;
     const load = async () => {
-      const rows = await getJson<AgentView[]>("/v1/dashboard");
-      setOnline(rows !== null);
-      if (!stop) setAgents(rows ?? []);
+      try {
+        const response = await apiFetch("/v1/dashboard");
+        if (!response.ok) throw new Error("Dashboard unavailable");
+        const rows = await response.json() as AgentView[];
+        if (!stop) { setOnline(true); setChainDegraded(response.headers.get("x-perpetua-chain-degraded") === "true"); setAgents(rows); }
+      } catch { if (!stop) { setOnline(false); setAgents([]); } }
     };
     load();
     const t = setInterval(load, intervalMs);
@@ -33,7 +38,7 @@ export function useAgents(intervalMs = 8000) {
       window.removeEventListener("perpetua:capital-changed", load);
     };
   }, [intervalMs]);
-  return { agents, online };
+  return { agents, online, chainDegraded };
 }
 
 export function runwayDays(a: AgentView): number {
