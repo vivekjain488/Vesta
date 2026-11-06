@@ -17,13 +17,16 @@ export interface ChatMessage {
 
 export interface BrainResult {
   content: string;
-  verificationSource?: "0g-router";
+  /** "external" = non-0G fallback provider (Fireworks): never TEE-attested, never an on-chain proof. */
+  verificationSource?: "0g-router" | "external";
   billing?: Record<string, unknown> | null;
   chatId: string;
   model: string;
   provider: string;
   verified: boolean | null; // broker.inference.processResponse
   tee: { text: string; signature: Hex; signer: Hex } | null; // the exact TEE-signed text, for RiskGate
+  /** "rules" = signed by the deterministic-rules attester, not a 0G TEE. Absent = model/TEE result. */
+  attestation?: "tee" | "rules";
   tokens: number;
   costOg: number;
 }

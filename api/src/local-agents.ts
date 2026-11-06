@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { keccak256, toBytes, parseUnits, type Address, type Hex } from "viem";
-import { agentRegistryAbi, agentWalletAbi, computeTreasuryAbi, harvestRouterAbi, mockERC20Abi, perpetuaVaultAbi, riskGateAbi, type AgentDefinition } from "@perpetua/core";
+import { agentRegistryAbi, agentWalletAbi, computeTreasuryAbi, harvestRouterAbi, mockERC20Abi, perpetuaVaultAbi, riskGateAbi, tierProfile, type AgentDefinition } from "@perpetua/core";
+import { LOCAL_RULES_SIGNER_KEY } from "../../agent/src/rules-attestation";
 import { clients } from "../../agent/src/chain";
 import { privateKeyToAccount } from "viem/accounts";
 import { chainOperation } from "./local-withdrawals";
@@ -22,9 +23,12 @@ export async function deployLocalAgent(platform: Platform, definition: AgentDefi
     const send = async (address: Address, abi: any, functionName: string, args: any[]) => receipt(await admin.wallet.writeContract({ address, abi, functionName, args, account: admin.account, chain: admin.chain }));
     const id = keccak256(toBytes(definition.id)); const proposer = privateKeyToAccount(process.env.PROPOSER_PRIVATE_KEY as Hex).address;
     const priceSigner = privateKeyToAccount(process.env.PRICE_SIGNER_PRIVATE_KEY as Hex).address;
-    const vault = await deploy("PerpetuaVault", [dep.usdc, definition.name, "pAGENT", id, 9500n, 10000000n, false, admin.account.address]);
+    // The risk tier fixes the CPPI floor (piBps), RiskGate's immutable tier and the multiplier m.
+    const tier = tierProfile(definition.config.riskTier);
+    const vault = await deploy("PerpetuaVault", [dep.usdc, definition.name, "pAGENT", id, BigInt(tier.piBps), 10000000n, false, admin.account.address]);
     const wallet = await deploy("AgentWallet", [admin.account.address]);
-    const gate = await deploy("RiskGate", [vault, wallet, parseUnits(String(definition.config.risk.maxNotionalUsd), 6), 1, proposer, priceSigner, admin.account.address]);
+    const gate = await deploy("RiskGate", [vault, wallet, parseUnits(String(definition.config.risk.maxNotionalUsd), 6), tier.onchainTier, proposer, priceSigner, admin.account.address]);
+    if (tier.multiplier !== 3) await send(gate, riskGateAbi, "setMultiplier", [BigInt(tier.multiplier)]);
     await send(wallet, agentWalletAbi, "wire", [vault, gate, proposer, admin.account.address]);
     await send(vault, perpetuaVaultAbi, "wire", [dep.safeLeg, gate, wallet, dep.harvestRouter]);
     dep.assets ??= { LINK: dep.link };
@@ -35,6 +39,8 @@ export async function deployLocalAgent(platform: Platform, definition: AgentDefi
       await send(gate, riskGateAbi, "setAsset", [address, true, 500]);
     }
     await send(gate, riskGateAbi, "setTeeSigner", [privateKeyToAccount(keccak256(toBytes("perpetua-sim-tee-signer"))).address, true]);
+    // Deterministic-rules attester: lets the agent keep trading (labelled "rules-attested") when 0G is down.
+    await send(gate, riskGateAbi, "setRulesSigner", [privateKeyToAccount((process.env.RULES_SIGNER_PRIVATE_KEY as Hex | undefined) ?? LOCAL_RULES_SIGNER_KEY).address, true]);
     await send(gate, riskGateAbi, "setMinimumOperatingCapital", [parseUnits(String(definition.config.compute.minimumCapitalUsd), 6)]);
     await send(vault, perpetuaVaultAbi, "setFeeManager", [proposer]);
     await send(vault, perpetuaVaultAbi, "setAgentOwner", [definition.owner]);
@@ -42,7 +48,7 @@ export async function deployLocalAgent(platform: Platform, definition: AgentDefi
     await send(dep.computeTreasury, computeTreasuryAbi, "configureAgent", [id, proposer, parseUnits(String(definition.config.compute.maxDailySpendOg), 18)]);
     await send(dep.registry, agentRegistryAbi, "register", [id, definition.name, definition.config.template, vault, gate, wallet, proposer]);
     for (const [address, abi] of [[vault, perpetuaVaultAbi], [wallet, agentWalletAbi], [gate, riskGateAbi]] as const) await send(address, abi, "transferOwnership", [definition.owner]);
-    const result = { vault, wallet, riskGate: gate, agentId: id, name: definition.name, strategy: definition.config.template, riskTier: "balanced", platformAgent: true, assets };
+    const result = { vault, wallet, riskGate: gate, agentId: id, name: definition.name, strategy: definition.config.template, riskTier: tier.id, piBps: tier.piBps, multiplier: tier.multiplier, platformAgent: true, assets };
     dep[definition.id] = result;
     writeFileSync(process.env.DEPLOYMENT_FILE ?? "contracts/deployments/local-31337.json", JSON.stringify(dep, null, 2));
     const state = { createdAt: Math.floor(Date.now() / 1000), tier: "hibernate", lastThought: 0, lastBarT: {}, lastEpoch: "0", burnOgPerHour: 0.02, liveTrades: 0, wins: 0, consecutiveLosses: 0, lastIncomeBlock: "0", signals: {}, trades: {}, lastLedgerOg: 12, lastRunwayH: 0 };

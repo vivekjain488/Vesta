@@ -59,6 +59,7 @@ function Extras({ m }: { m: Msg }) {
         <PopGroup show>
           <span className="flex items-center gap-1.5 text-sm font-medium"><HashIcon className="size-3.5" /> Order</span>
           <Badge variant="trade-solid">{t.status === "open" ? "Approved by RiskGate" : "Closed"}</Badge>
+          {t.attestation && <Badge variant={t.attestation === "rules-attested" ? "trade" : "brand"} size="micro">{t.attestation === "rules-attested" ? "Rules-attested" : "0G TEE-attested"}</Badge>}
         </PopGroup>
         <div className="pop-in max-w-xs rounded-2xl bg-muted p-3" style={{ ["--pop-delay" as string]: "160ms" }}>
           <p className="text-sm font-medium">{t.status === "open" ? "Live order" : "Settled order"}</p>

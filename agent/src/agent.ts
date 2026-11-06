@@ -35,7 +35,7 @@ import { erc20Abi, keccak256, parseUnits, toBytes, toHex, zeroHash, type Address
 import { clients, type Clients } from "./chain";
 import type { AssetCfg, Config } from "./config";
 import { FlashHttp, FlashSim, approvalSpender, type FlashBackend, type QuoteResponse } from "./flash";
-import { fetchBars4h, fundingRate8h, headlines, syntheticBars } from "./market";
+import { fetchBars4h, fundingRate8h, headlines, nowSeconds, syntheticBars } from "./market";
 import { PriceAttestor } from "./prices";
 import { Records } from "./records";
 import { Gate, Treasury } from "./riskgate";
@@ -43,6 +43,9 @@ import { SimSettlement } from "./simSettlement";
 import { XPoster } from "./social";
 import { SimBrain, ZeroGBrain, type Brain, type BrainResult } from "./zerog";
 import { ZeroGRouterBrain, routerCapitalPolicy } from "./zerog-router";
+import { FallbackBrain, FireworksBrain } from "./fallback-brain";
+import { parseSentiment, sentimentMessages } from "./prompts";
+import { RulesAttester } from "./rules-attestation";
 import { createComputeFundingController, type ComputeFundingController } from "./compute-funding";
 
 const REVEAL_DELAY_S = 15 * 60;
@@ -64,6 +67,8 @@ interface SignalRecord {
 
 interface TradeRecord {
   uid: string;
+  /** which on-chain proof authorised the entry */
+  attestation?: "0g-tee-attested" | "rules-attested";
   signalUid: string;
   asset: string;
   status: "open" | "closed";
@@ -75,6 +80,14 @@ interface TradeRecord {
   qty: bigint | string;
   flashOrderId: string;
   approvalTx: Hex;
+  /** close time of the candle the entry was decided on; brackets are evaluated on later candles */
+  entryBarT?: number;
+  /** last candle already checked against the bracket */
+  checkedBarT?: number;
+  closedAt?: number;
+  exitPrice?: number;
+  exitReason?: "stop" | "target" | "manual";
+  pnlUsd?: number;
 }
 
 interface AgentState {
@@ -97,6 +110,9 @@ interface AgentState {
   computeFunding?: { action: string; reason: string; updatedAtMs: number; allowNewTrades: boolean };
 }
 
+/** Sim exit cost: 10 bps Flash fee + 20 bps slippage allowance (entry pays 10 bps) ~ 0.4% round trip, as in backtests. */
+const SIM_EXIT_COST_BPS = 30;
+
 export class PerpetuaAgent {
   readonly vc: Clients; // vault chain, proposer key
   readonly gate: Gate;
@@ -113,6 +129,8 @@ export class PerpetuaAgent {
   private priceCache = new Map<string, number>();
   private readonly stateFile: string;
   private computeFunding?: ComputeFundingController;
+  /** Signs deterministic-rule decisions when no 0G TEE proof exists (RiskGate.rulesSigners). */
+  readonly rules?: RulesAttester;
 
   constructor(
     readonly cfg: Config,
@@ -126,6 +144,7 @@ export class PerpetuaAgent {
         : new FlashSim((asset) => this.priceCache.get(asset.toLowerCase()) ?? 15, cfg.vaultChainId);
     this.attestor = new PriceAttestor(cfg.priceSignerKey, cfg.vaultChainId, cfg.riskGate, this.flash, cfg.flash.chain, cfg.usdc);
     this.brain = brain;
+    if (cfg.rulesSignerKey) this.rules = new RulesAttester(cfg.rulesSignerKey);
     const tc = clients(cfg.treasuryRpc, cfg.treasuryChainId, cfg.zeroG.privateKey);
     this.treasury = new Treasury(tc, cfg.computeTreasury, cfg.agentId);
     this.writer = new ArkivWriter(cfg.agentName, { privateKey: process.env.ARKIV_PRIVATE_KEY as Hex | undefined });
@@ -142,12 +161,20 @@ export class PerpetuaAgent {
   }
 
   static async create(cfg: Config) {
-    const brain: Brain =
+    const fallback = cfg.zeroG.mode !== "sim" && cfg.fallbackLlm.apiKey
+      ? new FireworksBrain({ apiKey: cfg.fallbackLlm.apiKey, baseUrl: cfg.fallbackLlm.baseUrl, model: cfg.fallbackLlm.model, maxTokensPerHour: cfg.zeroG.maxTokensPerHour, maxTokensPerDay: cfg.zeroG.maxTokensPerDay })
+      : null;
+    // 0G Compute is primary. With a Fireworks key configured, a 0G outage degrades to Fireworks sentiment + rules-attested
+    // orders instead of stopping the agent.
+    const zeroG: Brain | null =
       cfg.zeroG.mode === "router"
-        ? new ZeroGRouterBrain({ ...cfg.zeroG, stateFile: `${stateDir()}/0g-router-${cfg.agentName}-budget.json` })
+        ? cfg.zeroG.apiKey || !fallback ? new ZeroGRouterBrain({ ...cfg.zeroG, stateFile: `${stateDir()}/0g-router-${cfg.agentName}-budget.json` }) : null
         : cfg.zeroG.mode === "live"
-        ? await new ZeroGBrain({ ...cfg.zeroG, initializeLedger: false }).init()
-        : new SimBrain({
+        ? await new ZeroGBrain({ ...cfg.zeroG, initializeLedger: false }).init().catch((e) => { if (!fallback) throw e; console.warn(`[0g] direct broker unavailable (${(e as Error).message}); Fireworks fallback only`); return null; })
+        : null;
+    const brain: Brain = zeroG || fallback
+      ? fallback ? new FallbackBrain(zeroG, fallback) : zeroG!
+      : new SimBrain({
             startOg: cfg.zeroG.simStartOg,
             costOg: { large: cfg.zeroG.costPerCallUsd.large / cfg.zeroG.ogPriceUsd, small: cfg.zeroG.costPerCallUsd.small / cfg.zeroG.ogPriceUsd },
             maxTokensPerHour: cfg.zeroG.maxTokensPerHour,
@@ -262,7 +289,12 @@ export class PerpetuaAgent {
     const hoursSince = (t0 - (this.state.lastThought || t0)) / 3600;
 
     // 1. metabolism
-    if (this.brain.mode === "live") {
+    if (this.brain.mode === "live" && this.brain.fundingMode === "router") {
+      // Router/Fireworks inference is billed per request to the API account: no ledger for the funding controller to
+      // top up. Local per-hour/day token caps bound spend; RiskGate still gates every order.
+      this.state.computeFunding = { action: "trade", reason: "per_request_billing_token_caps", updatedAtMs: Date.now(), allowNewTrades: true };
+      this.save();
+    } else if (this.brain.mode === "live") {
       this.state.computeFunding = this.computeFunding ? await this.computeFunding.tick() : {
         action: "wait", reason: "compute_funding_adapter_required", updatedAtMs: Date.now(), allowNewTrades: false,
       };
@@ -293,6 +325,7 @@ export class PerpetuaAgent {
     else for (const a of this.cfg.assets) {
       const prevBarT = this.state.lastBarT[a.symbol] ?? 0;
       const bars = await this.loadBars(a);
+      await this.settleSimBrackets(a, bars);
       const newBar = last(bars).t !== prevBarT;
       this.state.lastBarT[a.symbol] = last(bars).t;
       const vol = rollingDailyVol(bars.map((b) => b.c), 180);
@@ -356,15 +389,14 @@ export class PerpetuaAgent {
     ];
     const pick = pickModel({ decision: "trade_proposal", exposureUsd, policy, models, multiple: 20 });
     if (!pick) return { result: null, score: 0, reasons: ["router: decision not worth an LLM call"] };
+    // Historical replay has no archived news: never pay for a model call on an empty feed.
+    if (this.cfg.candleSource === "replay") return { result: null, score: 0, reasons: ["paper replay: no archived headlines; rules only"] };
     const hl = this.cfg.candleSource === "synthetic" ? [] : await headlines(a.symbol, policy.tier === "thrive" ? 12 : 5).catch(() => []);
     const pol = { ...policy, model: pick.tier === "large" ? ("large" as const) : ("small" as const) };
     const t0 = Date.now();
     const result = await this.brain.think(
       pol,
-      [
-        { role: "system", content: "You are a crypto market sentiment scorer. Reply with JSON only: {\"sentiment\": number in [-1,1], \"reasons\": string[] (max 3)}. Never recommend trade sizes." },
-        { role: "user", content: `Asset: ${a.symbol}. Headlines:\n${hl.map((h) => `- ${h}`).join("\n") || "(none)"}` },
-      ],
+      sentimentMessages(a.symbol, hl, this.cfg.mandatePrompt),
       policy.tier === "thrive" ? 300 : 120,
     ).catch((e) => {
       console.warn("[0g] think failed:", (e as Error).message);
@@ -372,18 +404,15 @@ export class PerpetuaAgent {
     });
     if (!result) return { result: null, score: 0, reasons: ["no LLM result (cap/tier/provider)"] };
     this.state.computeSpend!.og += Number.isFinite(result.costOg) && result.costOg > 0 ? result.costOg : 0;
-    this.state.computeSpend!.unsettled ||= !Number.isFinite(result.costOg) || result.costOg <= 0;
+    // Fireworks bills its own USD account: it never leaves 0G settlement unknown.
+    if (result.verificationSource !== "external") this.state.computeSpend!.unsettled ||= !Number.isFinite(result.costOg) || result.costOg <= 0;
     this.save();
     if (Number.isFinite(result.costOg) && result.costOg > 0) this.recordSpend(result.costOg, Math.max((Date.now() - t0) / 3.6e6, this.cfg.tickSeconds / 3600));
     let score = 0;
     let reasons: string[] = [];
-    try {
-      const j = JSON.parse(result.content.replace(/```json|```/g, "").trim());
-      score = Math.max(-1, Math.min(1, Number(j.sentiment) || 0));
-      reasons = Array.isArray(j.reasons) ? j.reasons.slice(0, 3).map(String) : [];
-    } catch {
-      reasons = ["unparseable model output: sentiment treated as 0"];
-    }
+    const parsed = parseSentiment(result.content);
+    if (parsed) ({ score, reasons } = parsed);
+    else reasons = ["unparseable model output: sentiment treated as 0"];
     this.records.decision({
       uid: `dec:${result.chatId}`,
       decision: "trade_proposal",
@@ -394,13 +423,15 @@ export class PerpetuaAgent {
       chatId: result.chatId,
       teeVerified: result.verified === true,
       costOg: result.costOg,
-      meta: { provider: result.provider, tokens: result.tokens, teeSigner: result.tee?.signer },
+      meta: { provider: result.provider, tokens: result.tokens, teeSigner: result.tee?.signer, source: result.verificationSource === "external" ? "fireworks-fallback" : "0g" },
     });
     return { result, score, reasons };
   }
 
   private async think(a: AssetCfg, bars: Bar[], policy: TierPolicy, mandate: MandateView, flags: Awaited<ReturnType<Gate["flags"]>>) {
-    this.state.lastThought = Math.floor(Date.now() / 1000);
+    this.state.lastThought = nowSeconds();
+    // One position per asset: its bracket manages the exit; never stack entries on the same asset.
+    if (Object.values(this.state.trades).some((t) => t.status === "open" && t.asset === a.symbol)) return;
     const C = Number(mandate.C) / 1e6;
     const E = Number(mandate.E) / 1e6;
     const open = Number(mandate.riskyValue) / 1e6;
@@ -415,14 +446,21 @@ export class PerpetuaAgent {
       fetchBars4h({ krakenPair: "ETHUSD", binanceSymbol: "ETHUSDT", source: this.cfg.candleSource }).catch(() => undefined),
     ]);
     const signal = generateSignal(
-      { asset: a.symbol, bars, btcBars: btc, ethBars: eth, fundingRate8h: this.cfg.candleSource === "synthetic" ? undefined : await fundingRate8h(a.binanceSymbol), sentiment: s.result ? { score: s.score, reasons: s.reasons } : null },
+      { asset: a.symbol, bars, btcBars: btc, ethBars: eth, fundingRate8h: ["synthetic", "replay"].includes(this.cfg.candleSource) ? undefined : await fundingRate8h(a.binanceSymbol), sentiment: s.result ? { score: s.score, reasons: s.reasons } : null },
       options,
     );
     console.log(`[signal] ${a.symbol} ${signal.direction} score=${signal.score.toFixed(3)} conf=${signal.confidence.toFixed(2)} ${signal.rejectedBy ?? ""}`);
-    if (signal.direction !== "long" || !s.result?.tee) {
-      if (signal.direction === "long" && s.result && this.brain.fundingMode === "router") console.log("[0g] Router analysis recorded; a raw signer-bound TEE proof is required before RiskGate can authorize an order");
-      return;
+    if (signal.direction !== "long") return;
+    // On-chain proof: the 0G TEE signature when we have one, otherwise a deterministic-rules attestation.
+    let proof: BrainResult | null = s.result?.tee ? { ...s.result, attestation: "tee" } : null;
+    if (!proof && this.rules) {
+      proof = await this.rules.attest(signal, {
+        agent: this.cfg.agentName, riskGate: this.cfg.riskGate, chainId: this.cfg.vaultChainId, kind: this.cfg.strategy, configHash: this.cfg.configHash, candleT: last(bars).t,
+        ai: s.result ? { source: s.result.verificationSource === "external" ? "fireworks" : "0g", chatId: s.result.chatId, model: s.result.model, teeVerified: s.result.verified === true, sentiment: s.score } : null,
+      });
+      this.records.decision({ uid: `rules:${proof.chatId}`, decision: "rules_attestation", model: proof.model, tier: policy.tier, input: s.result?.chatId ?? "rules-only", output: proof.content, chatId: proof.chatId, teeVerified: false, costOg: 0, meta: { attestation: "rules", signer: proof.tee!.signer, aiSource: s.result ? (s.result.verificationSource === "external" ? "fireworks" : "0g") : "none" } });
     }
+    if (!proof) return void console.log("[gate] no 0G TEE proof and no rules attester configured: order not proposed");
 
     let size = sizePosition({ cushionUsd: C, exposureBudgetUsd: E, openExposureUsd: open, stopDistancePct: (signal.entry - signal.stop) / signal.entry, sizeMultiplier: signal.sizeMultiplier, liveTrades: this.state.liveTrades, halfSize: flags.halfSize || this.state.consecutiveLosses >= 3 });
     if (this.cfg.strategyConfig) {
@@ -430,7 +468,7 @@ export class PerpetuaAgent {
       size = Math.min(size, Math.max(0, r.maxNotionalUsd - open), Number(mandate.V) / 1e6 * r.maxMarginPct / 100, Number(mandate.V) / 1e6 * r.riskPerTradePct / 100 / Math.max(1e-9, (signal.entry - signal.stop) / signal.entry));
     }
     if (size < 1) return void console.log(`[size] ${size.toFixed(2)} USDC below minimum: no trade`);
-    await this.proposeEntry(a, signal, size, s.result);
+    await this.proposeEntry(a, signal, size, proof);
   }
 
   async proposeEntry(a: AssetCfg, signal: Signal, sizeUsd: number, brain: BrainResult) {
@@ -455,13 +493,13 @@ export class PerpetuaAgent {
     // Trade first, sell after: only now does the signal go on sale (paying agents now, free Arena +15 min).
     const hidden = { direction: signal.direction, confidence: signal.confidence, regime: signal.regime, entry: signal.entry, stop: signal.stop, target: signal.target, reasons: signal.reasons, flashOrderId: result.orderId, chatId: brain.chatId };
     const { commitHash, salt } = this.records.commitSignal(uid, signal, this.cfg.vaultChainId, hidden);
-    const now = Math.floor(Date.now() / 1000);
+    const now = nowSeconds();
     this.state.signals[uid] = { uid, asset: a.symbol, createdAt: now, commitHash, salt, revealAt: now + REVEAL_DELAY_S, revealed: false, ownOrderPlacedAt: now, signal, hidden, chatId: brain.chatId };
     this.state.liveTrades++;
     const cushionX = (sizeUsd / Math.max(1, Number((await this.gate.mandate()).C) / 1e6)).toFixed(1);
     const rw = await this.runway();
     await this.x.post(
-      `Opened ${a.symbol} long, ${cushionX}x cushion, stop at -${(((signal.entry - signal.stop) / signal.entry) * 100).toFixed(1)}%. Runway ${(rw.hours / 24).toFixed(1)} days. Copy me: ${this.cfg.x.arenaUrl}/agent/${this.cfg.agentName}`,
+      `Opened ${a.symbol} long, ${cushionX}x cushion, stop at -${(((signal.entry - signal.stop) / signal.entry) * 100).toFixed(1)}%.${Number.isFinite(rw.hours) ? ` Runway ${(rw.hours / 24).toFixed(1)} days.` : ""}${brain.attestation === "rules" ? " Rules-attested." : ""} Copy me: ${this.cfg.x.arenaUrl}/agent/${this.cfg.agentName}`,
       { tx: result.approvalTx, flash: result.orderId, "0g": brain.chatId },
     );
     this.save();
@@ -550,9 +588,10 @@ export class PerpetuaAgent {
 
     if (this.sim) await this.sim.fillEntry({ wallet: this.cfg.wallet, tokenIn: this.cfg.usdc, tokenOut: a.address, amountIn: intent.amountIn, amountOut: parseUnits(Number(q.to!.amount).toFixed(8), a.decimals) });
 
-    this.state.trades[uid] = { uid, signalUid: uid, asset: a.symbol, status: "open", openedAt: Math.floor(Date.now() / 1000), sizeUsd, entry: priceUsd, stop: signal.stop, target: signal.target, qty: q.to!.amount, flashOrderId: sub.orderId, approvalTx };
-    this.records.trade({ uid, asset: a.symbol, side: "buy", status: "open", flashOrderId: sub.orderId, openedAt: Math.floor(Date.now() / 1000), meta: { size: sizeUsd, entry: priceUsd, stop: signal.stop, target: signal.target, approvalTx, digest, bracketDigest } });
-    console.log(`[flash] order ${sub.orderId} placed (approval ${approvalTx})`);
+    const attestation = brain.attestation === "rules" ? "rules-attested" : "0g-tee-attested";
+    this.state.trades[uid] = { uid, signalUid: uid, asset: a.symbol, status: "open", openedAt: nowSeconds(), sizeUsd, entry: priceUsd, stop: signal.stop, target: signal.target, qty: q.to!.amount, flashOrderId: sub.orderId, approvalTx, attestation, entryBarT: last(this.bars.get(a.symbol) ?? [{ t: 0 } as Bar]).t };
+    this.records.trade({ uid, asset: a.symbol, side: "buy", status: "open", flashOrderId: sub.orderId, openedAt: nowSeconds(), meta: { size: sizeUsd, entry: priceUsd, stop: signal.stop, target: signal.target, approvalTx, digest, bracketDigest, attestation, proofId: brain.chatId } });
+    console.log(`[flash] order ${sub.orderId} placed (approval ${approvalTx}, ${attestation})`);
     return { ok: true as const, orderId: sub.orderId, approvalTx, digest };
   }
 
@@ -580,6 +619,49 @@ export class PerpetuaAgent {
     }
   }
 
+  /**
+   * Sim only: execute each position's attached bracket the way Flash would, on closed candles after the entry
+   * candle. When one candle spans both levels the STOP fills first; gaps fill at the open. The exit is approved
+   * on-chain as a risk-reducing Exit order (rules-attested) and settled through the same allowance path.
+   */
+  private async settleSimBrackets(a: AssetCfg, bars: Bar[]) {
+    if (this.cfg.flash.mode !== "sim" || !this.sim) return;
+    for (const t of Object.values(this.state.trades)) {
+      if (t.status !== "open" || t.asset !== a.symbol || t.entryBarT === undefined) continue;
+      let exit: { price: number; reason: "stop" | "target"; barT: number } | null = null;
+      for (const b of bars) {
+        if (b.t <= Math.max(t.entryBarT, t.checkedBarT ?? 0)) continue;
+        if (b.l <= t.stop) { exit = { price: Math.min(t.stop, b.o), reason: "stop", barT: b.t }; break; }
+        if (b.h >= t.target) { exit = { price: Math.max(t.target, b.o), reason: "target", barT: b.t }; break; }
+        t.checkedBarT = b.t;
+      }
+      if (exit) await this.executeSimExit(a, t, exit).catch((e) => console.warn(`[bracket] ${a.symbol} exit failed: ${(e as Error).message}`));
+    }
+    this.save();
+  }
+
+  private async executeSimExit(a: AssetCfg, t: TradeRecord, exit: { price: number; reason: "stop" | "target"; barT: number }) {
+    if (!this.rules) throw new Error("no rules attester to authorise the bracket exit");
+    const bal = (await this.vc.pub.readContract({ address: a.address, abi: erc20Abi, functionName: "balanceOf", args: [this.cfg.wallet] })) as bigint;
+    if (bal === 0n) return void this.closeTrade(t, exit.price, -t.sizeUsd, exit.reason);
+    const qty = Number(bal) / 10 ** a.decimals;
+    const proceeds = qty * exit.price * (1 - SIM_EXIT_COST_BPS / 10_000);
+    const amountOut = parseUnits(proceeds.toFixed(6), 6);
+    const now = await this.blockTime();
+    const { priceUsd: _p, ...px } = await this.attestor.attest(a, exit.price, now);
+    const proof = await this.rules.attestRecord({ v: 1, type: "perpetua-bracket-exit", trade: t.uid, asset: a.symbol, reason: exit.reason, price: Number(exit.price.toPrecision(10)), candleT: exit.barT, riskGate: this.cfg.riskGate.toLowerCase() }, "rules-bracket-v1");
+    const intent: OrderIntent = {
+      flashDigest: keccak256(toBytes(`bracket:${t.uid}`)), bracketDigest: zeroHash, kind: OrderKind.Exit, tokenIn: a.address, tokenOut: this.cfg.usdc,
+      amountIn: bal, minAmountOut: amountOut, stopPriceE8: 0n, takeProfitPriceE8: 0n, deadline: now + 600n, recipient: this.cfg.wallet,
+    };
+    const g = await this.gate.approveOrder(intent, px, { chatIdHash: keccak256(toBytes(proof.chatId)), response: toHex(toBytes(proof.tee!.text)), signature: proof.tee!.signature });
+    if (!g.ok) throw new Error(`RiskGate refused the exit: ${g.reason}`);
+    await this.sim!.fillExit({ wallet: this.cfg.wallet, tokenIn: a.address, tokenOut: this.cfg.usdc, amountIn: bal, amountOut });
+    // proceeds minus what the entry cost: both Flash fees and the exit slippage allowance are inside this number
+    this.closeTrade(t, exit.price, proceeds - t.sizeUsd, exit.reason);
+    console.log(`[bracket] ${a.symbol} ${exit.reason} @ ${exit.price.toFixed(2)} pnl ${(proceeds - t.sizeUsd).toFixed(2)} USDC`);
+  }
+
   /** Hibernate tier: flatten risky holdings back to stablecoin (Exit orders are always permitted by RiskGate). */
   private async closeRiskyPositions() {
     for (const t of Object.values(this.state.trades).filter((x) => x.status === "open")) {
@@ -598,9 +680,13 @@ export class PerpetuaAgent {
     }
   }
 
-  closeTrade(t: TradeRecord, exitPrice: number) {
+  closeTrade(t: TradeRecord, exitPrice: number, realisedPnlUsd?: number, reason: TradeRecord["exitReason"] = "manual") {
     t.status = "closed";
-    const pnl = (exitPrice / t.entry - 1) * t.sizeUsd;
+    const pnl = realisedPnlUsd ?? (exitPrice / t.entry - 1) * t.sizeUsd;
+    t.closedAt = nowSeconds();
+    t.exitPrice = exitPrice;
+    t.exitReason = reason;
+    t.pnlUsd = pnl;
     const r = (exitPrice - t.entry) / Math.max(1e-9, t.entry - t.stop);
     const win = pnl > 0;
     if (win) {

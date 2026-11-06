@@ -2,7 +2,8 @@ import { config as loadEnv } from "dotenv";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Address, Hex } from "viem";
-import type { StrategyKind, StrategyConfig } from "@perpetua/core";
+import { LOCAL_RULES_SIGNER_KEY } from "./rules-attestation";
+import { STRATEGY_KINDS, type StrategyKind, type StrategyConfig } from "@perpetua/core";
 
 export interface AssetCfg {
   symbol: string; // LINK | ETH | cbBTC
@@ -39,8 +40,8 @@ export function loadConfig() {
   const strategy: StrategyKind = (process.env.AGENT_STRATEGY as StrategyKind) ??
     ({ Atlas: "momentum", Halcyon: "mean-reversion", Ember: "dca" } as Record<string, StrategyKind>)[agentName] ??
     "momentum";
-  if (!["momentum", "mean-reversion", "dca"].includes(strategy)) throw new Error("Unsupported spot strategy");
-  if (process.env.FLASH_MODE === "live" && process.env.CANDLE_SOURCE === "synthetic") throw new Error("Synthetic market data cannot be used for live trading");
+  if (!STRATEGY_KINDS.includes(strategy)) throw new Error("Unsupported spot strategy");
+  if (process.env.FLASH_MODE === "live" && ["synthetic", "replay"].includes(process.env.CANDLE_SOURCE ?? "")) throw new Error("Synthetic market data cannot be used for live trading");
 
   const assets: AssetCfg[] = process.env.ASSETS_JSON
     ? JSON.parse(process.env.ASSETS_JSON)
@@ -101,9 +102,20 @@ export function loadConfig() {
       maxTokensPerDay: Number(env("MAX_TOKENS_PER_DAY", "600000")),
     },
 
+    /** Fallback inference (Fireworks AI) when 0G is unavailable. Never an on-chain proof (no TEE). */
+    fallbackLlm: {
+      apiKey: process.env.FIREWORKS_API_KEY ?? "",
+      baseUrl: env("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1"),
+      model: process.env.FIREWORKS_MODEL ?? "",
+    },
+    /** Deterministic-rules attester (RiskGate.rulesSigners). The well-known local key is only used on anvil. */
+    rulesSignerKey: (process.env.RULES_SIGNER_PRIVATE_KEY ?? (Number(process.env.VAULT_CHAIN_ID ?? "31337") === 31337 ? LOCAL_RULES_SIGNER_KEY : undefined)) as Hex | undefined,
+    /** The owner's natural-language mandate (preset prompt or custom); model context only, never executable. */
+    mandatePrompt: undefined as string | undefined,
+    configHash: undefined as string | undefined,
     x: { userToken: process.env.X_USER_ACCESS_TOKEN ?? "", arenaUrl: env("ARENA_URL", "http://localhost:3000") },
     tickSeconds: Number(env("TICK_SECONDS", "60")),
-    candleSource: env("CANDLE_SOURCE", "kraken") as "kraken" | "binance" | "synthetic" | "arkiv",
+    candleSource: env("CANDLE_SOURCE", "kraken") as "kraken" | "binance" | "synthetic" | "arkiv" | "replay",
   };
 }
 

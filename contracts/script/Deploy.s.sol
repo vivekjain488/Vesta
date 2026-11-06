@@ -36,6 +36,7 @@ contract Deploy is Script {
         address proposer = vm.envOr("PROPOSER_ADDRESS", deployer);
         address priceSigner = vm.envOr("PRICE_SIGNER_ADDRESS", deployer);
         address teeSigner = vm.envOr("TEE_SIGNER_ADDRESS", deployer);
+        address rulesSigner = vm.envOr("RULES_SIGNER_ADDRESS", address(0));
         address flashSpender = vm.envOr("FLASH_SPENDER_ADDRESS", deployer);
         string memory mode = vm.envOr("MODE", string("local"));
         bool local = keccak256(bytes(mode)) == keccak256("local");
@@ -114,6 +115,7 @@ contract Deploy is Script {
             vault.wire(legForVault, address(gate), address(wallet), address(router));
             gate.setAsset(link, true, 500);
             gate.setTeeSigner(teeSigner, true);
+            if (rulesSigner != address(0)) gate.setRulesSigner(rulesSigner, true);
             gate.setKeeperEconomics(0.05e6, 50e6, 1e6, uint64(vm.envOr("POKE_INTERVAL", uint256(4 hours))));
             vault.setFeeManager(proposer);
             router.setVault(address(vault), true);

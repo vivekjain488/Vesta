@@ -19,8 +19,9 @@ export function clients(rpc: string, chainId: number, key: Hex) {
   return {
     account,
     chain,
-    pub: createPublicClient({ chain, transport: projectTransport(chainId, rpc) }),
-    wallet: createWalletClient({ chain, transport: projectTransport(chainId, rpc), account }),
+    // Local anvil mines instantly; viem's 4s default polling would make every receipt wait for no reason.
+    pub: createPublicClient({ chain, transport: projectTransport(chainId, rpc), ...(chainId === 31337 ? { pollingInterval: 50 } : {}) }),
+    wallet: createWalletClient({ chain, transport: projectTransport(chainId, rpc), account, ...(chainId === 31337 ? { pollingInterval: 50 } : {}) }),
   };
 }
 

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { verifyMessage, type Hex } from "viem";
-import { configAuthMessage, configHash, ownerAddress, validateStrategyConfig, type AgentDefinition } from "@perpetua/core";
+import { configAuthMessage, configHash, ownerAddress, RISK_TIER_IDS, validateStrategyConfig, type AgentDefinition } from "@perpetua/core";
 
 export type ConfigAction = "create" | "update" | "compile" | "request-exit" | "withdraw";
 /** Single-process signed configuration service; deployment/runtime keys never enter this store. */
@@ -48,11 +48,13 @@ export class AgentDefinitions {
     if (!payload || typeof payload.name !== "string" || !/^[\p{L}\p{N} _-]{1,60}$/u.test(payload.name.trim())) throw new Error("Name must contain 1–60 letters, digits, spaces, underscores or hyphens");
     if (!["draft", "paper", "sleeping"].includes(payload.status)) throw new Error("Definitions support draft, paper or sleeping mode only");
     const config = validateStrategyConfig(payload.config);
+    if (payload.preset !== undefined && !RISK_TIER_IDS.includes(payload.preset)) throw new Error("Unknown risk-tier preset");
+    if (payload.prompt !== undefined && (typeof payload.prompt !== "string" || payload.prompt.length > 4000)) throw new Error("Agent prompt must be at most 4000 characters");
     const previous = id ? this.get(id) : null;
     if (previous && previous.owner !== owner) throw new Error("This wallet does not own the agent");
     if (previous && payload.revision !== previous.revision) throw new Error("Configuration changed; reload before updating");
     const now = Date.now();
-    const record: AgentDefinition = { id: previous?.id ?? randomUUID(), owner, name: payload.name.trim(), revision: (previous?.revision ?? 0) + 1, status: payload.status, config, configHash: configHash(config), createdAt: previous?.createdAt ?? now, updatedAt: now };
+    const record: AgentDefinition = { id: previous?.id ?? randomUUID(), owner, name: payload.name.trim(), revision: (previous?.revision ?? 0) + 1, status: payload.status, config, configHash: configHash(config), ...(payload.preset ? { preset: payload.preset } : previous?.preset ? { preset: previous.preset } : {}), ...(typeof payload.prompt === "string" && payload.prompt.trim() ? { prompt: payload.prompt.trim() } : previous?.prompt ? { prompt: previous.prompt } : {}), createdAt: previous?.createdAt ?? now, updatedAt: now };
     const target = resolve(this.directory, `${record.id}.json`);
     const temporary = `${target}.${randomBytes(6).toString("hex")}.tmp`;
     writeFileSync(temporary, JSON.stringify(record, null, 2), { mode: 0o600 });

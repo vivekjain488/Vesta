@@ -124,6 +124,9 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
     address public priceSigner;
     address public orderHasher; // optional: on-chain recomputation of Flash's digest (day-one)
     mapping(address => bool) public teeSigners; // acknowledged 0G provider TEE signer addresses
+    /// Deterministic-rules attesters: used when no TEE-attested model is reachable. A rules attestation
+    /// proves the order came from the published rule set (no AI judgement); every RiskGate check still applies.
+    mapping(address => bool) public rulesSigners;
     mapping(address => AssetConfig) public assets;
     address[] public assetList;
 
@@ -160,6 +163,8 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
     event OrderRejected(bytes32 indexed digest, bytes32 reason);
     event ApprovalRevoked(bytes32 indexed digest);
     event ConfigChanged(bytes32 indexed what);
+    /// source: 1 = 0G TEE-attested model response, 2 = deterministic rules attestation.
+    event Attested(bytes32 indexed responseHash, address indexed signer, uint8 source);
 
     error Rejected(bytes32 reason);
     error OnlyProposer();
@@ -222,6 +227,11 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
     function setTeeSigner(address signer, bool ok) external onlyOwner {
         teeSigners[signer] = ok;
         emit ConfigChanged("tee");
+    }
+
+    function setRulesSigner(address signer, bool ok) external onlyOwner {
+        rulesSigners[signer] = ok;
+        emit ConfigChanged("rules");
     }
 
     function setRoles(address proposer_, address guardian_, address priceSigner_) external onlyOwner {
@@ -577,12 +587,17 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
         }
     }
 
-    function _verifyTee(TeeProof calldata p) internal view returns (bytes32) {
+    /// @dev Accepts a 0G TEE signer (source 1) or an allow-listed rules attester (source 2).
+    function _verifyTee(TeeProof calldata p) internal returns (bytes32) {
         if (p.response.length == 0) return bytes32(0);
         bytes32 h = MessageHashUtils.toEthSignedMessageHash(p.response);
         (address rec, ECDSA.RecoverError err,) = ECDSA.tryRecover(h, p.signature);
-        if (err != ECDSA.RecoverError.NoError || !teeSigners[rec]) return bytes32(0);
-        return keccak256(p.response);
+        if (err != ECDSA.RecoverError.NoError) return bytes32(0);
+        uint8 source = teeSigners[rec] ? 1 : rulesSigners[rec] ? 2 : 0;
+        if (source == 0) return bytes32(0);
+        bytes32 rh = keccak256(p.response);
+        emit Attested(rh, rec, source);
+        return rh;
     }
 
     function _applyBreakers(uint256 C, uint256 E) internal returns (uint256) {

@@ -11,3 +11,5 @@ export * from "./agent-config";
 export * from "./futures";
 export * from "./capital-router";
 export * from "./compute-funding";
+export * from "./backtest";
+export * from "./presets";

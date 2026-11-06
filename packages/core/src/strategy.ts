@@ -5,7 +5,9 @@
 import { atr, donchian, ema, last, macd, percentileRank, rollingDailyVol, rsi, type Bar } from "./indicators";
 
 export type Regime = "uptrend" | "range" | "downtrend";
-export type StrategyKind = "momentum" | "mean-reversion" | "dca";
+/** adaptive = regime-switching ensemble: momentum in uptrends, mean-reversion in ranges, flat in downtrends. */
+export type StrategyKind = "momentum" | "mean-reversion" | "dca" | "adaptive";
+export const STRATEGY_KINDS: readonly StrategyKind[] = ["momentum", "mean-reversion", "dca", "adaptive"];
 
 export interface MarketContext {
   asset: string;
@@ -128,7 +130,40 @@ export interface SignalOptions {
   roundTripCostPct?: number; // Flash fee + gas + slippage, decimal
 }
 
+/** Everything the decision needs, computed only from bars up to and including the latest closed one. */
+export interface SignalFeatures {
+  asset: string;
+  close: number;
+  atr: number;
+  regime: Regime;
+  highVol: boolean;
+  factors: FactorScores;
+  rsi: number;
+  sentimentReasons: string[];
+}
+
+export function signalFeatures(ctx: MarketContext, breakoutBars?: number): SignalFeatures {
+  const close = last(ctx.bars.map((b) => b.c));
+  const { regime, highVol } = classifyRegime(ctx.bars);
+  const f = scoreFactors(ctx, breakoutBars);
+  return {
+    asset: ctx.asset,
+    close,
+    atr: last(atr(ctx.bars, 14)),
+    regime,
+    highVol,
+    factors: { trend: f.trend, sentiment: f.sentiment, momentum: f.momentum, relativeStrength: f.relativeStrength, positioning: f.positioning },
+    rsi: f.rsi,
+    sentimentReasons: ctx.sentiment?.reasons ?? [],
+  };
+}
+
 export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Signal {
+  return decideSignal(signalFeatures(ctx, opts.breakoutBars), opts);
+}
+
+/** Deterministic entry rules. Shared verbatim by the live agent and the backtester. */
+export function decideSignal(x: SignalFeatures, opts: SignalOptions = {}): Signal {
   const kind = opts.kind ?? "momentum";
   const minScore = opts.minScore ?? 0.35;
   const minAgree = opts.minAgreeing ?? 3;
@@ -136,23 +171,13 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   const m = opts.m ?? 3;
   const cost = opts.roundTripCostPct ?? 0.004;
 
-  const closes = ctx.bars.map((b) => b.c);
-  const close = last(closes);
-  const a = last(atr(ctx.bars, 14));
-  const { regime, highVol } = classifyRegime(ctx.bars);
-  const f = scoreFactors(ctx, opts.breakoutBars);
-  const factors: FactorScores = {
-    trend: f.trend,
-    sentiment: f.sentiment,
-    momentum: f.momentum,
-    relativeStrength: f.relativeStrength,
-    positioning: f.positioning,
-  };
+  const { close, regime, highVol, factors } = x;
+  const a = x.atr;
   const score = (Object.keys(FACTOR_WEIGHTS) as (keyof FactorScores)[]).reduce(
     (s, k) => s + FACTOR_WEIGHTS[k] * factors[k],
     0,
   );
-  const agreeing = Object.values(factors).filter((x) => x > 0).length;
+  const agreeing = Object.values(factors).filter((v) => v > 0).length;
 
   const stop = close - (opts.stopAtr ?? 2) * a;
   const target = close + (opts.targetAtr ?? 4) * a;
@@ -162,12 +187,12 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   const sizeMultiplier = regimeMult * (highVol ? 0.5 : 1);
   const reasons: string[] = [
     `regime=${regime}${highVol ? " (high vol: size halved)" : ""}`,
-    `score=${score.toFixed(3)} agreeing=${agreeing}/5 rsi=${f.rsi.toFixed(1)}`,
-    ...(ctx.sentiment?.reasons ?? []),
+    `score=${score.toFixed(3)} agreeing=${agreeing}/5 rsi=${x.rsi.toFixed(1)}`,
+    ...x.sentimentReasons,
   ];
 
   const base: Signal = {
-    asset: ctx.asset,
+    asset: x.asset,
     direction: "flat",
     confidence: Math.max(0, Math.min(1, (score + 1) / 2)),
     score,
@@ -190,23 +215,31 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   if (regime === "downtrend") return reject("downtrend: no new longs");
   if ((close - stop) / close >= 1 / m) return reject("stop outside CPPI gap 1/m");
   if ((target - close) / close < 3 * cost) return reject("expected move < 3x round-trip cost");
-  if (rewardRisk < minRR) return reject("reward:risk < 2");
+  if (rewardRisk < minRR) return reject(`reward:risk < ${minRR}`);
 
   if (kind === "dca") {
     // Accumulator: buys on schedule in non-downtrend regimes, smaller size, still bracketed.
     return { ...base, direction: "long", orderType: "limit", sizeMultiplier: sizeMultiplier * 0.5 };
   }
-  if (kind === "mean-reversion") {
+  const meanReversion = (): Signal => {
     if (regime !== "range") return reject("mean-reversion trades range regimes only");
-    if (f.rsi > (opts.rsiOversold ?? 40)) return reject("mean-reversion: rsi not oversold");
+    if (x.rsi > (opts.rsiOversold ?? 40)) return reject("mean-reversion: rsi not oversold");
     return { ...base, direction: "long", orderType: "limit", entry: close - 0.5 * a };
+  };
+  const momentum = (): Signal => {
+    if (x.rsi > 75) return reject("rsi > 75: no chasing");
+    if (regime === "range") return reject("momentum: range regime is mean-reversion only");
+    if (score < minScore) return reject(`score ${score.toFixed(2)} < ${minScore}`);
+    if (agreeing < minAgree) return reject(`only ${agreeing}/5 factors agree`);
+    return { ...base, direction: "long" };
+  };
+  if (kind === "mean-reversion") return meanReversion();
+  if (kind === "adaptive") {
+    // Regime switch: each sub-strategy only runs in the regime it was built for.
+    const s = regime === "range" ? meanReversion() : momentum();
+    return { ...s, reasons: [`adaptive -> ${regime === "range" ? "mean-reversion" : "momentum"}`, ...s.reasons] };
   }
-  // momentum (default)
-  if (f.rsi > 75) return reject("rsi > 75: no chasing");
-  if (regime === "range") return reject("momentum: range regime is mean-reversion only");
-  if (score < minScore) return reject(`score ${score.toFixed(2)} < ${minScore}`);
-  if (agreeing < minAgree) return reject(`only ${agreeing}/5 factors agree`);
-  return { ...base, direction: "long" };
+  return momentum();
 }
 
 export interface SizingInput {

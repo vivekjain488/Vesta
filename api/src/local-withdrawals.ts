@@ -5,12 +5,22 @@ import { priceAttestationTypedData, riskGateAbi } from "@perpetua/core";
 import { privateKeyToAccount } from "viem/accounts";
 import { clients } from "../../agent/src/chain";
 import { SimSettlement } from "../../agent/src/simSettlement";
-import { syntheticBars } from "../../agent/src/market";
+import { fetchBars4h, latestClose, replayActive, syntheticBars } from "../../agent/src/market";
 import { Platform } from "./platform";
 
 let queue: Promise<unknown> = Promise.resolve();
 export function chainOperation<T>(work: () => Promise<T>): Promise<T> { const result = queue.then(work); queue = result.catch(() => {}); return result; }
-export const localPriceUsd = (symbol = "LINK") => syntheticBars(400, symbol === "BTC" ? 65000 : symbol === "ETH" ? 2500 : 15).at(-1)!.c;
+const syntheticPrice = (symbol: string) => syntheticBars(400, symbol === "BTC" ? 65000 : symbol === "ETH" ? 2500 : 15).at(-1)!.c;
+/** Paper mark: the latest closed candle (replay clock aware) for real-data runs; the synthetic series otherwise. */
+export const localPriceUsd = (symbol = "LINK") =>
+  process.env.CANDLE_SOURCE === "synthetic" && !replayActive() ? syntheticPrice(symbol) : latestClose(`${symbol}USDT`) ?? syntheticPrice(symbol);
+/** Same as localPriceUsd, but fetches a real close first when this process has not seen one yet. */
+export async function markPriceUsd(symbol: string) {
+  const source = process.env.CANDLE_SOURCE;
+  if (!replayActive() && source !== "synthetic" && latestClose(`${symbol}USDT`) === undefined)
+    await fetchBars4h({ krakenPair: symbol === "BTC" ? "XBTUSD" : `${symbol}USD`, binanceSymbol: `${symbol}USDT`, source: (source as any) ?? "kraken", limit: 2 }).catch(() => undefined);
+  return localPriceUsd(symbol);
+}
 
 export async function refreshLocalRisk(platform: Platform, id: string) {
   const a = platform.agent(id);
@@ -23,7 +33,7 @@ export async function refreshLocalRisk(platform: Platform, id: string) {
     const token = await platform.pub.readContract({ address: a.riskGate, abi: riskGateAbi, functionName: "assetList", args: [BigInt(i)] });
     if (!await platform.pub.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [a.wallet] })) continue;
     const symbol = await platform.pub.readContract({ address: token, abi: erc20Abi, functionName: "symbol" });
-    const timestamp = (await platform.pub.getBlock({ blockTag: "latest" })).timestamp; const priceE8 = BigInt(Math.round(localPriceUsd(symbol) * 1e8));
+    const timestamp = (await platform.pub.getBlock({ blockTag: "latest" })).timestamp; const priceE8 = BigInt(Math.round((await markPriceUsd(String(symbol))) * 1e8));
     prices.push({ asset: token, timestamp, priceE8, signature: await signer.signTypedData(priceAttestationTypedData(31337, a.riskGate, token, priceE8, timestamp)) });
   }
   const hash = await admin.wallet.writeContract({ address: a.riskGate, abi: riskGateAbi, functionName: "poke", args: [prices], account: admin.account, chain: admin.chain });

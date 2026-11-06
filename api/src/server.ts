@@ -16,11 +16,12 @@ import "dotenv/config";
 import express from "express";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { checkEntry, riskGateAbi, STRATEGY_TEMPLATES, templateConfig, type RiskCheckRequest } from "@perpetua/core";
+import { AGENT_PRESETS, checkEntry, presetConfig, RISK_TIER_IDS, riskGateAbi, STRATEGY_TEMPLATES, templateConfig, type RiskCheckRequest, type RiskTierId } from "@perpetua/core";
 import { AgentDefinitions, type ConfigAction } from "./agent-definitions";
 import { compileStrategy } from "../../agent/src/strategy-compiler";
 import { ZeroGBrain, type Brain } from "../../agent/src/zerog";
 import { ZeroGRouterBrain, ZeroGServiceError } from "../../agent/src/zerog-router";
+import { FallbackBrain, FireworksBrain } from "../../agent/src/fallback-brain";
 import { FlashHttp } from "../../agent/src/flash";
 import { investments, saveExitRequest } from "./investments";
 import { WalletSessions, SESSION_COOKIE } from "./sessions";
@@ -42,6 +43,7 @@ const FLASH_BASE = process.env.FLASH_BASE_URL ?? "https://flash.definitive.fi/v1
 const FLASH_KEY = process.env.FLASH_API_KEY ?? "";
 const CHECKER = process.env.PROPOSER_PRIVATE_KEY ? privateKeyToAccount(process.env.PROPOSER_PRIVATE_KEY as Hex).address : ("0x0000000000000000000000000000000000000000" as Address);
 const REVEAL_S = 15 * 60;
+const FIREWORKS_KEY = process.env.FIREWORKS_API_KEY ?? "";
 
 mkdirSync(STATE, { recursive: true });
 const writer = new ArkivWriter("api", { intervalMs: 60_000 });
@@ -134,7 +136,7 @@ app.post("/v1/agent-definitions/:id/deploy", async (req, res) => {
   } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
 app.get("/v1/network", async (req, res) => {
-  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", executionMode: process.env.FLASH_MODE ?? "sim", aiMode: process.env.ZG_MODE ?? "sim", candleSource: process.env.CANDLE_SOURCE ?? "kraken", balanceUsdc: formatUnits(balance, 6) }); }
+  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", executionMode: process.env.FLASH_MODE ?? "sim", aiMode: process.env.ZG_MODE ?? "sim", aiFallback: FIREWORKS_KEY ? "fireworks" : null, candleSource: process.env.CANDLE_SOURCE ?? "kraken", balanceUsdc: formatUnits(balance, 6) }); }
   catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
 app.post("/v1/local-faucet", async (req, res) => { try { res.json(await localFaucet(platform, sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); } });
@@ -145,6 +147,14 @@ const requireConfigAuth = async (req: express.Request, action: ConfigAction, pay
   if (String(owner).toLowerCase() !== sessionOwner(req).toLowerCase()) throw new Error("Session wallet does not match owner");
   return definitions.authorize(owner, action, payload, nonce, signature);
 };
+// Latest platform paper-trading replay (scripts/paper-replay.ts): on-chain NAV curves + trade stats per agent.
+app.get("/v1/paper-replay", (_, res) => {
+  const file = resolve(STATE, "paper-replay", "latest.json");
+  if (!existsSync(file)) return void res.status(404).json({ error: "No paper replay yet. Run pnpm paper:replay with the API stopped." });
+  res.type("json").send(readFileSync(file, "utf8"));
+});
+// Risk-tier presets: predefined mandate prompt + walk-forward-tuned config + out-of-sample backtest.
+app.get("/v1/presets", (_, res) => res.json(AGENT_PRESETS));
 app.get("/v1/strategy-templates", (_, res) => res.json(STRATEGY_TEMPLATES.map((t) => ({ ...t, config: templateConfig(t.id), liveSupported: false }))));
 app.get("/v1/agent-definitions", (req, res) => {
   try { res.json(definitions.list(sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
@@ -172,18 +182,25 @@ app.put("/v1/agent-definitions/:id", async (req, res) => {
 app.post("/v1/strategy/compile", async (req, res) => {
   try {
     await requireConfigAuth(req, "compile", req.body.payload);
-    if (process.env.CONFIG_COMPILER_ENABLED !== "true" || !(process.env.ZG_MODE === "router" && process.env.ZG_API_KEY || process.env.ZG_MODE === "live" && process.env.ZG_PRIVATE_KEY && process.env.ZG_PROVIDER_SMALL)) return void res.status(503).json({ error: "Live 0G strategy compiler is not configured. Select and edit a template." });
+    const zeroGReady = process.env.ZG_MODE === "router" && !!process.env.ZG_API_KEY || process.env.ZG_MODE === "live" && !!process.env.ZG_PRIVATE_KEY && !!process.env.ZG_PROVIDER_SMALL;
+    if (process.env.CONFIG_COMPILER_ENABLED !== "true" || !(zeroGReady || FIREWORKS_KEY)) return void res.status(503).json({ error: "Neither 0G nor the Fireworks fallback is configured. Pick a risk-tier preset or edit a template." });
+    const tier = req.body.payload?.base;
+    if (tier !== undefined && !RISK_TIER_IDS.includes(tier)) throw new Error("Unknown preset");
     if (compiling) return void res.status(429).json({ error: "Compiler busy; retry later" });
     compiling = true;
     try {
       if (!compiler) {
-        if (process.env.ZG_MODE === "router") compiler = new ZeroGRouterBrain({ apiKey: process.env.ZG_API_KEY!, baseUrl: process.env.ZG_BASE_URL ?? "https://router-api.0g.ai/v1", modelSmall: process.env.ZG_MODEL_SMALL ?? "0gm-1.0-35b-a3b", modelLarge: process.env.ZG_MODEL_LARGE ?? "glm-5.2", maxTokensPerHour: 20000, maxTokensPerDay: 50000, stateFile: resolve(STATE, "0g-router-compiler-budget.json") });
+        let zeroG: Brain | null = null;
+        if (!zeroGReady) zeroG = null;
+        else if (process.env.ZG_MODE === "router") zeroG = new ZeroGRouterBrain({ apiKey: process.env.ZG_API_KEY!, baseUrl: process.env.ZG_BASE_URL ?? "https://router-api.0g.ai/v1", modelSmall: process.env.ZG_MODEL_SMALL ?? "0gm-1.0-35b-a3b", modelLarge: process.env.ZG_MODEL_LARGE ?? "glm-5.2", maxTokensPerHour: 20000, maxTokensPerDay: 50000, stateFile: resolve(STATE, "0g-router-compiler-budget.json") });
         else {
-        const next = new ZeroGBrain({ rpc: process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai", privateKey: process.env.ZG_PRIVATE_KEY as Hex, providerLarge: process.env.ZG_PROVIDER_LARGE ?? "", providerSmall: process.env.ZG_PROVIDER_SMALL ?? "", subAccountTopUpOg: Number(process.env.ZG_SUBACCOUNT_TOPUP_OG ?? 1), minLedgerOg: Number(process.env.ZG_MIN_LEDGER_OG ?? 3), maxTokensPerHour: 10_000, maxTokensPerDay: 50_000 });
-        compiler = await next.init();
+        const next: ZeroGBrain = new ZeroGBrain({ rpc: process.env.ZG_RPC_URL ?? "https://evmrpc-testnet.0g.ai", privateKey: process.env.ZG_PRIVATE_KEY as Hex, providerLarge: process.env.ZG_PROVIDER_LARGE ?? "", providerSmall: process.env.ZG_PROVIDER_SMALL ?? "", subAccountTopUpOg: Number(process.env.ZG_SUBACCOUNT_TOPUP_OG ?? 1), minLedgerOg: Number(process.env.ZG_MIN_LEDGER_OG ?? 3), maxTokensPerHour: 10_000, maxTokensPerDay: 50_000 });
+        zeroG = await next.init().catch((e) => { if (!FIREWORKS_KEY) throw e; return null; });
         }
+        const fallback = FIREWORKS_KEY ? new FireworksBrain({ apiKey: FIREWORKS_KEY, baseUrl: process.env.FIREWORKS_BASE_URL, model: process.env.FIREWORKS_MODEL, maxTokensPerHour: 20_000, maxTokensPerDay: 50_000 }) : null;
+        compiler = fallback ? new FallbackBrain(zeroG, fallback) : zeroG!;
       }
-      res.json(await compileStrategy(compiler, req.body.payload?.prompt));
+      res.json(await compileStrategy(compiler, req.body.payload?.prompt, tier ? presetConfig(tier as RiskTierId) : undefined));
     } finally { compiling = false; }
   } catch (e) { if (e instanceof ZeroGServiceError) res.status(e.status).json({ error: e.message, code: e.code, requestId: e.requestId }); else res.status(400).json({ error: (e as Error).message }); }
 });

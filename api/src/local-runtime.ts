@@ -5,7 +5,7 @@ import { loadConfig } from "../../agent/src/config";
 import { AgentDefinitions } from "./agent-definitions";
 import { Platform } from "./platform";
 import { chainOperation, refreshLocalRisk } from "./local-withdrawals";
-import type { AgentDefinition, StrategyKind } from "@perpetua/core";
+import { templateKind, type AgentDefinition, type StrategyKind } from "@perpetua/core";
 
 export function pendingWithdrawals(platform: Platform, id: string) {
   const directory = resolve(platform.state, "withdrawals"); if (!existsSync(directory)) return [];
@@ -30,8 +30,8 @@ export function startLocalRuntime(platform: Platform, definitions: AgentDefiniti
           if (summary.chain.withdrawalPaused || summary.chain.V < d.config.compute.minimumCapitalUsd) continue;
           if (!worker || worker.revision !== d.revision) {
             worker?.agent.writer.stop();
-            const base = loadConfig(); const kind: StrategyKind = d.config.template === "spot-dca" ? "dca" : d.config.template === "spot-range" ? "mean-reversion" : "momentum";
-            const agent = await PerpetuaAgent.create({ ...base, agentName: d.id, agentId: deployed.agentId, vault: deployed.vault, wallet: deployed.wallet, riskGate: deployed.riskGate, assets: deployed.assets, strategy: kind, strategyConfig: d.config, tickSeconds: d.config.execution.pollSeconds });
+            const base = loadConfig(); const kind: StrategyKind = templateKind(d.config.template);
+            const agent = await PerpetuaAgent.create({ ...base, agentName: d.id, agentId: deployed.agentId, vault: deployed.vault, wallet: deployed.wallet, riskGate: deployed.riskGate, assets: deployed.assets, strategy: kind, strategyConfig: d.config, mandatePrompt: d.prompt, configHash: d.configHash, tickSeconds: d.config.execution.pollSeconds });
             agent.writer.start(); worker = { agent, revision: d.revision, next: 0 }; workers.set(d.id, worker);
           }
           worker.next = Date.now() + d.config.execution.pollSeconds * 1000;

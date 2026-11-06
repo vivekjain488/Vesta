@@ -2,8 +2,40 @@
 import type { Bar } from "@perpetua/core";
 import { marketCandles } from "@perpetua/arkiv";
 
-export async function fetchBars4h(opts: { krakenPair: string; binanceSymbol: string; source?: "kraken" | "binance" | "synthetic" | "arkiv"; limit?: number }): Promise<Bar[]> {
+// ---------------------------------------------------------------------------------------------------------------
+// Paper replay: the platform runs on historical closed candles, one 4h step at a time (scripts/paper-replay.ts).
+// The clock is the close time of the latest bar the platform may "see"; nothing after it is ever returned.
+let replayClock: number | null = null;
+const replayHistory = new Map<string, Bar[]>();
+export function loadReplayHistory(binanceSymbol: string, bars: Bar[]) { replayHistory.set(binanceSymbol, bars); }
+export function setReplayClock(unixSeconds: number | null) { replayClock = unixSeconds; }
+export function replayActive() { return replayClock !== null; }
+/** Wall-clock seconds, or the replay clock while a paper replay runs. */
+export function nowSeconds() { return replayClock ?? Math.floor(Date.now() / 1000); }
+function replayBars(binanceSymbol: string, limit: number): Bar[] {
+  const all = replayHistory.get(binanceSymbol);
+  if (!all || replayClock === null) throw new Error(`no replay history for ${binanceSymbol}`);
+  let hi = all.length;
+  while (hi > 0 && all[hi - 1].t + 14_400 > replayClock) hi--;
+  return all.slice(Math.max(0, hi - limit), hi);
+}
+
+/** Latest closed-candle price seen by this process (replay clock aware). Used to mark paper positions. */
+const lastClose = new Map<string, number>();
+export function latestClose(binanceSymbol: string): number | undefined {
+  if (replayClock !== null && replayHistory.has(binanceSymbol)) return replayBars(binanceSymbol, 1).at(-1)?.c;
+  return lastClose.get(binanceSymbol);
+}
+
+export async function fetchBars4h(opts: { krakenPair: string; binanceSymbol: string; source?: "kraken" | "binance" | "synthetic" | "arkiv" | "replay"; limit?: number }): Promise<Bar[]> {
+  const bars = await fetchBars4hRaw(opts);
+  if (opts.source !== "synthetic" && bars.length) lastClose.set(opts.binanceSymbol, bars[bars.length - 1].c);
+  return bars;
+}
+
+async function fetchBars4hRaw(opts: { krakenPair: string; binanceSymbol: string; source?: "kraken" | "binance" | "synthetic" | "arkiv" | "replay"; limit?: number }): Promise<Bar[]> {
   const limit = opts.limit ?? 400;
+  if (opts.source === "replay") return replayBars(opts.binanceSymbol, limit);
   const closed = (bars: Bar[]) => bars.filter((b) => b.t + 14400 <= Math.floor(Date.now() / 1000)).slice(-limit);
   if (opts.source === "arkiv") return (await marketCandles(opts.binanceSymbol, Math.min(limit, 400))).bars;
   // deterministic: the same series (and last price) whatever `limit` the caller asks for
@@ -60,7 +92,7 @@ export async function headlines(asset: string, max = 12): Promise<string[]> {
       /* ignore a dead feed */
     }
   }
-  const names = { LINK: ["chainlink", "link"], ETH: ["ethereum", "eth"], cbBTC: ["bitcoin", "btc"] }[asset] ?? [asset.toLowerCase()];
+  const names = { LINK: ["chainlink", "link"], ETH: ["ethereum", "ether", "eth"], BTC: ["bitcoin", "btc"], cbBTC: ["bitcoin", "btc"] }[asset] ?? [asset.toLowerCase()];
   const relevant = titles.filter((t) => names.some((n) => t.toLowerCase().includes(n)));
   return (relevant.length ? relevant : titles.slice(1)).slice(0, max);
 }

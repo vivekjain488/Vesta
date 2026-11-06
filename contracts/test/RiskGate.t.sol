@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./Base.t.sol";
 import {RiskGate} from "../src/RiskGate.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 contract RiskGateTest is BaseTest {
     bytes4 internal constant MAGIC = 0x1626ba7e;
@@ -117,6 +118,65 @@ contract RiskGateTest is BaseTest {
         vm.prank(proposer);
         vm.expectRevert(abi.encodeWithSelector(RiskGate.Rejected.selector, bytes32("TEE_PROOF_INVALID")));
         gate.approveOrder(o, px, p);
+    }
+
+    function _signedBy(uint256 pk, string memory text) internal pure returns (RiskGate.TeeProof memory p) {
+        bytes memory b = bytes(text);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, MessageHashUtils.toEthSignedMessageHash(b));
+        p = RiskGate.TeeProof(keccak256("rules-1"), b, abi.encodePacked(r, s, v));
+    }
+
+    function test_rulesAttestation_approvedWhenAllowListed() public {
+        uint256 rulesPk = 0x5E1E5;
+        address rules = vm.addr(rulesPk);
+        vm.prank(owner);
+        gate.setRulesSigner(rules, true);
+        gate.poke(_noPrices());
+        RiskGate.OrderIntent memory o = _entry(keccak256("rules-good"), 50e6, 13.8e8);
+        string memory att = '{"v":1,"source":"rules","asset":"LINK","direction":"long"}';
+        RiskGate.TeeProof memory p = _signedBy(rulesPk, att);
+        RiskGate.PriceAttestation memory px = _price(address(link), LINK_PRICE);
+        vm.expectEmit(true, true, false, true, address(gate));
+        emit RiskGate.Attested(keccak256(bytes(att)), rules, 2);
+        vm.prank(proposer);
+        bytes32 rh = gate.approveOrder(o, px, p);
+        assertEq(rh, keccak256(bytes(att)));
+        assertEq(wallet.isValidSignature(o.flashDigest, _sigBy(proposerPk, o.flashDigest)), MAGIC);
+    }
+
+    function test_rulesAttestation_stillSubjectToRiskChecks() public {
+        uint256 rulesPk = 0x5E1E5;
+        vm.prank(owner);
+        gate.setRulesSigner(vm.addr(rulesPk), true);
+        gate.poke(_noPrices());
+        RiskGate.OrderIntent memory o = _entry(keccak256("rules-wide"), 50e6, 9e8); // stop outside 1/m
+        RiskGate.PriceAttestation memory px = _price(address(link), LINK_PRICE);
+        vm.prank(proposer);
+        vm.expectRevert(abi.encodeWithSelector(RiskGate.Rejected.selector, bytes32("STOP_OUTSIDE_GAP")));
+        gate.approveOrder(o, px, _signedBy(rulesPk, "rules"));
+    }
+
+    function test_rejects_unlistedOrRevokedRulesSigner() public {
+        uint256 rulesPk = 0x5E1E5;
+        gate.poke(_noPrices());
+        RiskGate.OrderIntent memory o = _entry(keccak256("rules-unlisted"), 50e6, 13.8e8);
+        RiskGate.PriceAttestation memory px = _price(address(link), LINK_PRICE);
+        vm.prank(proposer);
+        vm.expectRevert(abi.encodeWithSelector(RiskGate.Rejected.selector, bytes32("TEE_PROOF_INVALID")));
+        gate.approveOrder(o, px, _signedBy(rulesPk, "rules"));
+
+        vm.startPrank(owner);
+        gate.setRulesSigner(vm.addr(rulesPk), true);
+        gate.setRulesSigner(vm.addr(rulesPk), false);
+        vm.stopPrank();
+        vm.prank(proposer);
+        vm.expectRevert(abi.encodeWithSelector(RiskGate.Rejected.selector, bytes32("TEE_PROOF_INVALID")));
+        gate.approveOrder(o, px, _signedBy(rulesPk, "rules"));
+    }
+
+    function test_onlyOwnerSetsRulesSigner() public {
+        vm.expectRevert();
+        gate.setRulesSigner(makeAddr("x"), true);
     }
 
     function test_onlyProposerCanPropose() public {

@@ -1,9 +1,15 @@
 import { getAddress, isAddress, keccak256, toBytes, type Address } from "viem";
+import type { StrategyKind } from "./strategy";
+
+export type RiskTierId = "conservative" | "balanced" | "aggressive";
+export const RISK_TIER_IDS: readonly RiskTierId[] = ["conservative", "balanced", "aggressive"];
 
 /** Versioned, data-only strategy DSL. No generated code, addresses, keys, or arbitrary tools. */
 export interface StrategyConfig {
   version: 1;
-  template: "spot-momentum" | "spot-range" | "spot-dca" | "perp-trend" | "perp-range";
+  template: "spot-adaptive" | "spot-momentum" | "spot-range" | "spot-dca" | "perp-trend" | "perp-range";
+  /** Locks the on-chain CPPI protection (floor, multiplier, RiskGate tier). Defaults to balanced. */
+  riskTier?: RiskTierId;
   market: "spot" | "perpetual";
   symbols: string[];
   timeframe: "4h";
@@ -22,11 +28,15 @@ export interface AgentDefinition {
   status: "draft" | "paper" | "sleeping";
   config: StrategyConfig;
   configHash: string;
+  /** Risk-tier preset the agent was created from, and the mandate text the agent reasons with. */
+  preset?: RiskTierId;
+  prompt?: string;
   createdAt: number;
   updatedAt: number;
 }
 
 export const STRATEGY_TEMPLATES = [
+  { id: "spot-adaptive", label: "Spot adaptive", market: "spot", description: "Regime-switching: trend entries in uptrends, oversold entries in ranges, flat in downtrends." },
   { id: "spot-momentum", label: "Spot momentum", market: "spot", description: "Long-only trend entries using closed 4h candles." },
   { id: "spot-range", label: "Spot range reversion", market: "spot", description: "Long-only oversold entries in range regimes." },
   { id: "spot-dca", label: "Spot accumulation", market: "spot", description: "Small bracketed buys in non-downtrend regimes." },
@@ -46,9 +56,14 @@ export function templateConfig(template: StrategyConfig["template"]): StrategyCo
   };
 }
 
-function object(v: unknown, keys: readonly string[], path: string): Record<string, any> {
+/** Strategy kind the deterministic signal engine runs for a spot template. */
+export function templateKind(template: StrategyConfig["template"]): StrategyKind {
+  return template === "spot-dca" ? "dca" : template === "spot-range" ? "mean-reversion" : template === "spot-adaptive" ? "adaptive" : "momentum";
+}
+
+function object(v: unknown, keys: readonly string[], path: string, optional: readonly string[] = []): Record<string, any> {
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error(`${path}: expected object`);
-  for (const key of Object.keys(v)) if (!keys.includes(key)) throw new Error(`${path}: unsupported field ${key}`);
+  for (const key of Object.keys(v)) if (!keys.includes(key) && !optional.includes(key)) throw new Error(`${path}: unsupported field ${key}`);
   for (const key of keys) if (!(key in v)) throw new Error(`${path}: missing ${key}`);
   return v as Record<string, any>;
 }
@@ -59,7 +74,8 @@ function number(v: unknown, min: number, max: number, path: string, integer = fa
 
 /** Strict validation applies identically to templates, browser edits and AI output. Percentages use 0..100. */
 export function validateStrategyConfig(input: unknown): StrategyConfig {
-  const c = object(input, ["version", "template", "market", "symbols", "timeframe", "direction", "parameters", "risk", "compute", "execution"], "config");
+  const c = object(input, ["version", "template", "market", "symbols", "timeframe", "direction", "parameters", "risk", "compute", "execution"], "config", ["riskTier"]);
+  if (c.riskTier !== undefined && !RISK_TIER_IDS.includes(c.riskTier)) throw new Error("riskTier must be conservative, balanced or aggressive");
   if (c.version !== 1 || c.timeframe !== "4h") throw new Error("Only schema version 1 and closed 4h candles are supported");
   const base = templateConfig(c.template);
   if (c.market !== base.market) throw new Error("Template and market disagree");
