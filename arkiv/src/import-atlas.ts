@@ -58,11 +58,11 @@ async function main() {
   mkdirSync(".perpetua", { recursive: true });
   const cursor = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : { function: 1, event: 1 };
   const maxPages = Number(process.env.ATLAS_MAX_PAGES ?? 5);
-  const pk = process.env.ARKIV_PRIVATE_KEY as Hex | undefined;
+  const pk = (process.env.ARKIV_IMPORTER_PRIVATE_KEY ?? process.env.ARKIV_PRIVATE_KEY) as Hex | undefined;
   const importer: Address = pk ? privateKeyToAccount(pk).address : "0x0000000000000000000000000000000000000000";
   const runId = `run-${new Date().toISOString().slice(0, 19)}-${Math.random().toString(16).slice(2, 6)}`;
   const startedAt = Math.floor(Date.now() / 1000);
-  const writer = new ArkivWriter("atlas", { maxOpsPerBatch: 60 });
+  const writer = new ArkivWriter("atlas", { privateKey: pk, maxOpsPerBatch: Number(process.env.ATLAS_BATCH_SIZE ?? 10) });
   const counts = { fetched: 0, rejectedHashMismatch: 0, created: 0, patched: 0, extended: 0, hot: 0, decodeVerified: 0, decodeFailed: 0 };
   const errors: string[] = [];
   const fingerprints: Record<string, string> = {};

@@ -921,6 +921,13 @@ export const perpetuaVaultAbi = [
   },
   {
     "type": "function",
+    "name": "resetFeeClock",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "riskGate",
     "inputs": [],
     "outputs": [
@@ -1267,6 +1274,35 @@ export const perpetuaVaultAbi = [
     "outputs": [
       {
         "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdrawFromInvestment",
+    "inputs": [
+      {
+        "name": "assets",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "receiver",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "fromSafeLeg",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "shares",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2891,6 +2927,19 @@ export const riskGateAbi = [
   },
   {
     "type": "function",
+    "name": "minimumOperatingCapital",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "multiplier",
     "inputs": [],
     "outputs": [
@@ -2901,6 +2950,13 @@ export const riskGateAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "onOwnerWithdrawal",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -3087,7 +3143,21 @@ export const riskGateAbi = [
   },
   {
     "type": "function",
+    "name": "requestWithdrawalSleep",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "resetDrawdownBreaker",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resumeAfterWithdrawal",
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -3164,6 +3234,19 @@ export const riskGateAbi = [
         "name": "minInterval",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMinimumOperatingCapital",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -3380,6 +3463,19 @@ export const riskGateAbi = [
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "withdrawalPaused",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
     "type": "event",
     "name": "ApprovalRevoked",
     "inputs": [
@@ -3585,6 +3681,25 @@ export const riskGateAbi = [
     "inputs": [
       {
         "name": "keeper",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WithdrawalSleep",
+    "inputs": [
+      {
+        "name": "on",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "agentOwner",
         "type": "address",
         "indexed": true,
         "internalType": "address"

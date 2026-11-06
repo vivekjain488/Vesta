@@ -134,6 +134,8 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
     uint256 public lastRiskyValue; // risky leg marked at the last poke (stablecoin is read live)
     uint64 public lastPaidPoke;
     bool public hibernating;
+    bool public withdrawalPaused; // owner-requested sleep survives income, deposits and keeper pokes
+    uint256 public minimumOperatingCapital = 25e6; // USDC units; owner configurable
     bool public highVolMode;
 
     // circuit breakers
@@ -150,6 +152,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
     );
     event PokeNoop(address indexed keeper);
     event Hibernation(bool on, bytes32 reason);
+    event WithdrawalSleep(bool on, address indexed agentOwner);
     event CircuitBreaker(bytes32 indexed kind, uint256 value);
     event OrderApproved(
         bytes32 indexed digest, uint64 indexed epoch, Kind kind, uint256 notional, uint64 expiry, bytes32 responseHash
@@ -278,6 +281,60 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
         _enterHibernation(reason);
     }
 
+    /// @notice Sleep first, even if risky holdings must settle before a full redemption is liquid.
+    ///         Existing risk-reducing exits remain valid. This does not pretend to execute an unwind.
+    function requestWithdrawalSleep() external {
+        require(msg.sender == vault.agentOwner(), "agent owner only");
+        _pauseForWithdrawal();
+        uint256 bal = stable.balanceOf(wallet);
+        if (bal > 0) vault.pullFromWallet(bal);
+    }
+
+    function setMinimumOperatingCapital(uint256 amount) external {
+        require(msg.sender == vault.agentOwner(), "agent owner only");
+        require(amount > 0, "zero minimum");
+        minimumOperatingCapital = amount;
+        emit ConfigChanged("minimumCapital");
+    }
+
+    /// @inheritdoc IRiskGate
+    function onOwnerWithdrawal() external {
+        require(msg.sender == address(vault), "vault only");
+        // Called under the vault's withdrawal reentrancy guard: no callback into the vault here.
+        if (vault.convertToAssets(vault.balanceOf(vault.agentOwner())) < minimumOperatingCapital) {
+            _pauseForWithdrawal();
+        } else {
+            // Capital changed: old entries cannot spend against the pre-withdrawal mandate.
+            // Existing exits survive the epoch change and a fresh poke can resume normal entries.
+            mandate.epoch += 1;
+            mandate.validUntil = 0;
+            mandate.E = 0;
+            IAgentWallet(wallet).revokeFlashAllowance(address(stable));
+        }
+    }
+
+    /// @notice Deposits/income do not wake a user-paused agent. Owner explicitly resumes; a fresh
+    ///         poke must then issue a new mandate before any entry can be approved.
+    function resumeAfterWithdrawal() external {
+        require(msg.sender == vault.agentOwner(), "agent owner only");
+        require(withdrawalPaused, "not sleeping");
+        require(vault.convertToAssets(vault.balanceOf(msg.sender)) >= minimumOperatingCapital, "capital below minimum");
+        withdrawalPaused = false;
+        mandate.validUntil = 0; // force a fresh mandate even inside the keeper's normal interval
+        vault.resetFeeClock();
+        emit WithdrawalSleep(false, msg.sender);
+    }
+
+    function _pauseForWithdrawal() internal {
+        if (!withdrawalPaused) emit WithdrawalSleep(true, vault.agentOwner());
+        withdrawalPaused = true;
+        if (!hibernating) emit Hibernation(true, "OWNER_WITHDRAWAL");
+        hibernating = true;
+        mandate.E = 0;
+        vault.resetFeeClock();
+        IAgentWallet(wallet).revokeFlashAllowance(address(stable));
+    }
+
     function resetDrawdownBreaker() external onlyOwner {
         tradingOff = false;
         cushionPeak = mandate.C;
@@ -334,7 +391,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
 
         bool intervalElapsed = block.timestamp >= lastPaidPoke + currentPokeInterval();
         bytes32 stateHash =
-            keccak256(abi.encode(vault.vaultSideAssets(), walletVal, vault.principal(), pricesOk, hibernating));
+            keccak256(abi.encode(vault.vaultSideAssets(), walletVal, riskyValue, vault.principal(), pricesOk, hibernating, withdrawalPaused));
         if (!intervalElapsed && stateHash == mandate.stateHash && block.timestamp <= mandate.validUntil) {
             emit PokeNoop(msg.sender);
             return false;
@@ -347,7 +404,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
         uint256 C = CPPIMath.cushion(V, F);
 
         // 2. fees come out of the cushion only
-        if (C > 0) {
+        if (C > 0 && !withdrawalPaused) {
             vault.accrueFees(C);
             V = vault.vaultSideAssets() + walletVal;
             C = CPPIMath.cushion(V, F);
@@ -355,7 +412,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
 
         // 3. harvest surplus to 0G (only on paid cycles, never more than the cushion)
         uint64 nextEpoch = mandate.epoch + 1;
-        if (intervalElapsed && C > 0) {
+        if (intervalElapsed && C > 0 && !withdrawalPaused) {
             uint256 cap = Math.min(maxHarvestPerCycle, C);
             if (vault.computeNeedPerHarvest() >= minHarvest && cap > 0) {
                 vault.harvest(cap, nextEpoch);
@@ -369,7 +426,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
         E = _applyBreakers(C, E);
         if (!pricesOk) {
             _enterHibernation(R_PRICE_STALE);
-        } else if (hibernating && E > 0) {
+        } else if (hibernating && E > 0 && !withdrawalPaused) {
             hibernating = false;
             emit Hibernation(false, "INCOME_LANDED");
         }
@@ -382,7 +439,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
         // 6. keeper bounty, at most once per interval (paid before hashing state so a repeat poke is a no-op)
         if (intervalElapsed) {
             lastPaidPoke = uint64(block.timestamp);
-            if (keeperBounty > 0 && C > keeperBounty) vault.payBounty(msg.sender, keeperBounty);
+            if (!withdrawalPaused && keeperBounty > 0 && C > keeperBounty) vault.payBounty(msg.sender, keeperBounty);
         }
 
         mandate = Mandate({
@@ -395,7 +452,7 @@ contract RiskGate is IRiskGate, Ownable, EIP712 {
             E: E,
             riskyValue: riskyValue,
             stateHash: keccak256(
-                abi.encode(vault.vaultSideAssets(), walletAfter, vault.principal(), pricesOk, hibernating)
+                abi.encode(vault.vaultSideAssets(), walletAfter, riskyValue, vault.principal(), pricesOk, hibernating, withdrawalPaused)
             )
         });
         emit MandateRefreshed(nextEpoch, V, F, C, E, riskyValue, mandate.validUntil);

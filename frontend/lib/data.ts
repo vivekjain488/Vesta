@@ -1,8 +1,10 @@
 "use client";
+import { apiFetch } from "@/lib/api";
 import { perpetuaVaultAbi, riskGateAbi } from "@perpetua/core";
 import { createPublicClient, http, type Address } from "viem";
 
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+import { API } from "./api";
+export { API } from "./api";
 
 export const AGENTS = [
   { name: "Atlas", strategy: "Momentum: trades 4h trend breakouts with a bracket on every entry.", riskTier: "balanced" },
@@ -29,6 +31,7 @@ export interface OnChainAgent {
   epoch: number;
   validUntil: number;
   hibernating: boolean;
+  withdrawalPaused: boolean;
   tradingOff: boolean;
   principal: number;
   piBps: number;
@@ -39,7 +42,7 @@ export interface OnChainAgent {
 
 export async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const r = await fetch(`${API}${path}`, { cache: "no-store" });
+    const r = await apiFetch(`${API}${path}`, { cache: "no-store" });
     return r.ok ? ((await r.json()) as T) : null;
   } catch {
     return null;
@@ -61,7 +64,7 @@ export async function readAgent(dep: Deployment, name: string): Promise<OnChainA
   if (!a) return null;
   const pub = createPublicClient({ transport: http(dep.rpc) });
   try {
-    const [m, hibernating, tradingOff, principal, piBps, reserve, harvested, harvestable] = await Promise.all([
+    const [m, hibernating, tradingOff, principal, piBps, reserve, harvested, harvestable, withdrawalPaused] = await Promise.all([
       pub.readContract({ address: a.riskGate, abi: riskGateAbi, functionName: "mandate" }) as Promise<readonly any[]>,
       pub.readContract({ address: a.riskGate, abi: riskGateAbi, functionName: "hibernating" }) as Promise<boolean>,
       pub.readContract({ address: a.riskGate, abi: riskGateAbi, functionName: "tradingOff" }) as Promise<boolean>,
@@ -70,6 +73,7 @@ export async function readAgent(dep: Deployment, name: string): Promise<OnChainA
       pub.readContract({ address: a.vault, abi: perpetuaVaultAbi, functionName: "computeReserve" }) as Promise<bigint>,
       pub.readContract({ address: a.vault, abi: perpetuaVaultAbi, functionName: "totalHarvested" }) as Promise<bigint>,
       pub.readContract({ address: a.vault, abi: perpetuaVaultAbi, functionName: "harvestableIncome" }) as Promise<bigint>,
+      pub.readContract({ address: a.riskGate, abi: riskGateAbi, functionName: "withdrawalPaused" }) as Promise<boolean>,
     ]);
     return {
       epoch: Number(m[0]),
@@ -80,6 +84,7 @@ export async function readAgent(dep: Deployment, name: string): Promise<OnChainA
       E: usd(m[6]),
       riskyValue: usd(m[7]),
       hibernating,
+      withdrawalPaused,
       tradingOff,
       principal: usd(principal),
       piBps: Number(piBps),

@@ -18,6 +18,7 @@ import {
   last,
   perpetuaVaultAbi,
   pickModel,
+  capitalModelPolicy,
   rollingDailyVol,
   runwayHours,
   shouldWake,
@@ -89,6 +90,8 @@ interface AgentState {
   trades: Record<string, TradeRecord>;
   lastLedgerOg?: number;
   lastRunwayH?: number | null;
+  sleeping?: boolean;
+  computeSpend?: { day: string; og: number; unsettled: boolean };
 }
 
 export class PerpetuaAgent {
@@ -202,7 +205,7 @@ export class PerpetuaAgent {
   private async loadBars(a: AssetCfg): Promise<Bar[]> {
     let bars: Bar[];
     try {
-      bars = await fetchBars4h({ ...a, source: this.cfg.candleSource, limit: 400 });
+      bars = this.cfg.candleSource === "synthetic" ? syntheticBars(400, a.symbol === "BTC" ? 65000 : a.symbol === "ETH" ? 2500 : 15) : await fetchBars4h({ ...a, source: this.cfg.candleSource, limit: 400 });
     } catch (e) {
       if (this.cfg.flash.mode === "live") throw e;
       bars = syntheticBars(400);
@@ -231,6 +234,14 @@ export class PerpetuaAgent {
   // ======================================================================= the tick
 
   async tick(opts: { forceThink?: boolean } = {}) {
+    const flags = await this.gate.flags();
+    this.state.sleeping = flags.withdrawalPaused;
+    if (flags.withdrawalPaused) {
+      // User sleep is independent of financial runway: do not top up compute, burn or ask a model.
+      this.state.tier = "hibernate";
+      this.save();
+      return { tier: "hibernate", runwayH: this.state.lastRunwayH ?? 0, ledgerOg: this.state.lastLedgerOg ?? 0, woke: { wake: false, reason: "owner withdrawal sleep" }, mandate: await this.gate.mandate() };
+    }
     const t0 = Math.floor(Date.now() / 1000);
     const hoursSince = (t0 - (this.state.lastThought || t0)) / 3600;
 
@@ -244,7 +255,6 @@ export class PerpetuaAgent {
 
     // 2. risk picture (on-chain, never the agent's own number)
     const mandate = await this.gate.mandate();
-    const flags = await this.gate.flags();
     const mandateChanged = mandate.epoch.toString() !== this.state.lastEpoch;
     if (mandateChanged) {
       this.state.lastEpoch = mandate.epoch.toString();
@@ -256,19 +266,21 @@ export class PerpetuaAgent {
     await this.ensureStops(rw.policy);
 
     // 4. cheap wake filter
-    const a = this.cfg.assets[0];
-    const prevBarT = this.state.lastBarT[a.symbol] ?? 0;
-    const bars = await this.loadBars(a);
-    const newBar = last(bars).t !== prevBarT;
-    this.state.lastBarT[a.symbol] = last(bars).t;
-    const vol = rollingDailyVol(bars.map((b) => b.c), 180);
-    const volSpike = last(vol) > 1.5 * (vol.slice(-60).reduce((s, x) => s + (x || 0), 0) / 60);
-    const wake = opts.forceThink ? { wake: true, reason: "forced" } : shouldWake({ newBarClosed: newBar, volSpike, crossedLevel: false, mandateChanged, hoursSinceLastThought: hoursSince });
-
-    if (volSpike !== flags.halfSize && volSpike) await this.gate.setRuntimeFlags(flags.halfSize, true).catch(() => {});
-
+    let wake = { wake: false, reason: "no configured asset needs evaluation" };
     if (rw.policy.closesRiskyPositions) await this.closeRiskyPositions();
-    else if (wake.wake && !rw.policy.managesPositionsOnly) await this.think(a, bars, rw.policy, mandate, flags);
+    else for (const a of this.cfg.assets) {
+      const prevBarT = this.state.lastBarT[a.symbol] ?? 0;
+      const bars = await this.loadBars(a);
+      const newBar = last(bars).t !== prevBarT;
+      this.state.lastBarT[a.symbol] = last(bars).t;
+      const vol = rollingDailyVol(bars.map((b) => b.c), 180);
+      const volSpike = last(vol) > 1.5 * (vol.slice(-60).reduce((s, x) => s + (x || 0), 0) / 60);
+      const assetWake = opts.forceThink ? { wake: true, reason: "forced" } : shouldWake({ newBarClosed: newBar, volSpike, crossedLevel: false, mandateChanged, hoursSinceLastThought: hoursSince });
+      if (assetWake.wake) wake = assetWake;
+      if (volSpike && !flags.halfSize) await this.gate.setRuntimeFlags(flags.halfSize, true).catch(() => {});
+      // Refresh the mandate between assets so each entry uses the remaining shared exposure budget.
+      if (assetWake.wake && !rw.policy.managesPositionsOnly) await this.think(a, bars, rw.policy, await this.gate.mandate(), await this.gate.flags());
+    }
 
     // 5. income rollup + heartbeat
     await this.indexIncome();
@@ -307,13 +319,21 @@ export class PerpetuaAgent {
   // ======================================================================= thinking + proposing
 
   private async sentiment(a: AssetCfg, policy: TierPolicy, exposureUsd: number): Promise<{ result: BrainResult | null; score: number; reasons: string[] }> {
+    if (this.cfg.strategyConfig) {
+      const capital = Number((await this.gate.vaultState()).totalAssets) / 1e6;
+      const selected = capitalModelPolicy(this.cfg.strategyConfig, capital, await this.brain.ledgerOg());
+      policy = { ...policy, model: !policy.model ? null : policy.model === "small" && selected.model === "large" ? "small" : selected.model };
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    if (this.state.computeSpend?.day !== day) this.state.computeSpend = { day, og: 0, unsettled: false };
+    if (this.cfg.strategyConfig && (this.state.computeSpend.unsettled || this.state.computeSpend.og >= this.cfg.strategyConfig.compute.maxDailySpendOg)) return { result: null, score: 0, reasons: ["daily compute budget exhausted or settlement unknown"] };
     const models = [
       { id: "small", tier: "small" as const, estCostUsdPerCall: this.cfg.zeroG.costPerCallUsd.small },
       { id: "large", tier: "large" as const, estCostUsdPerCall: this.cfg.zeroG.costPerCallUsd.large },
     ];
     const pick = pickModel({ decision: "trade_proposal", exposureUsd, policy, models, multiple: 20 });
     if (!pick) return { result: null, score: 0, reasons: ["router: decision not worth an LLM call"] };
-    const hl = await headlines(a.symbol, policy.tier === "thrive" ? 12 : 5).catch(() => []);
+    const hl = this.cfg.candleSource === "synthetic" ? [] : await headlines(a.symbol, policy.tier === "thrive" ? 12 : 5).catch(() => []);
     const pol = { ...policy, model: pick.tier === "large" ? ("large" as const) : ("small" as const) };
     const t0 = Date.now();
     const result = await this.brain.think(
@@ -328,6 +348,9 @@ export class PerpetuaAgent {
       return null;
     });
     if (!result) return { result: null, score: 0, reasons: ["no LLM result (cap/tier/provider)"] };
+    this.state.computeSpend!.og += Number.isFinite(result.costOg) && result.costOg > 0 ? result.costOg : 0;
+    this.state.computeSpend!.unsettled ||= !Number.isFinite(result.costOg) || result.costOg <= 0;
+    this.save();
     this.recordSpend(result.costOg, Math.max((Date.now() - t0) / 3.6e6, this.cfg.tickSeconds / 3600));
     let score = 0;
     let reasons: string[] = [];
@@ -358,7 +381,8 @@ export class PerpetuaAgent {
     const C = Number(mandate.C) / 1e6;
     const E = Number(mandate.E) / 1e6;
     const open = Number(mandate.riskyValue) / 1e6;
-    const prelim = generateSignal({ asset: a.symbol, bars }, { kind: this.cfg.strategy, m: flags.multiplier });
+    const options = { kind: this.cfg.strategy, m: flags.multiplier, ...this.cfg.strategyConfig?.parameters };
+    const prelim = generateSignal({ asset: a.symbol, bars }, options);
     const stopPct = (prelim.entry - prelim.stop) / prelim.entry;
     const prelimSize = sizePosition({ cushionUsd: C, exposureBudgetUsd: E, openExposureUsd: open, stopDistancePct: stopPct, sizeMultiplier: Math.max(prelim.sizeMultiplier, 0.5), liveTrades: this.state.liveTrades, halfSize: flags.halfSize || this.state.consecutiveLosses >= 3 });
 
@@ -368,13 +392,17 @@ export class PerpetuaAgent {
       fetchBars4h({ krakenPair: "ETHUSD", binanceSymbol: "ETHUSDT", source: this.cfg.candleSource }).catch(() => undefined),
     ]);
     const signal = generateSignal(
-      { asset: a.symbol, bars, btcBars: btc, ethBars: eth, fundingRate8h: await fundingRate8h(a.binanceSymbol), sentiment: s.result ? { score: s.score, reasons: s.reasons } : null },
-      { kind: this.cfg.strategy, m: flags.multiplier },
+      { asset: a.symbol, bars, btcBars: btc, ethBars: eth, fundingRate8h: this.cfg.candleSource === "synthetic" ? undefined : await fundingRate8h(a.binanceSymbol), sentiment: s.result ? { score: s.score, reasons: s.reasons } : null },
+      options,
     );
     console.log(`[signal] ${a.symbol} ${signal.direction} score=${signal.score.toFixed(3)} conf=${signal.confidence.toFixed(2)} ${signal.rejectedBy ?? ""}`);
     if (signal.direction !== "long" || !s.result?.tee) return;
 
-    const size = sizePosition({ cushionUsd: C, exposureBudgetUsd: E, openExposureUsd: open, stopDistancePct: (signal.entry - signal.stop) / signal.entry, sizeMultiplier: signal.sizeMultiplier, liveTrades: this.state.liveTrades, halfSize: flags.halfSize || this.state.consecutiveLosses >= 3 });
+    let size = sizePosition({ cushionUsd: C, exposureBudgetUsd: E, openExposureUsd: open, stopDistancePct: (signal.entry - signal.stop) / signal.entry, sizeMultiplier: signal.sizeMultiplier, liveTrades: this.state.liveTrades, halfSize: flags.halfSize || this.state.consecutiveLosses >= 3 });
+    if (this.cfg.strategyConfig) {
+      const r = this.cfg.strategyConfig.risk;
+      size = Math.min(size, Math.max(0, r.maxNotionalUsd - open), Number(mandate.V) / 1e6 * r.maxMarginPct / 100, Number(mandate.V) / 1e6 * r.riskPerTradePct / 100 / Math.max(1e-9, (signal.entry - signal.stop) / signal.entry));
+    }
     if (size < 1) return void console.log(`[size] ${size.toFixed(2)} USDC below minimum: no trade`);
     await this.proposeEntry(a, signal, size, s.result);
   }

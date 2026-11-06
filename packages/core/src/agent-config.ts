@@ -19,7 +19,7 @@ export interface AgentDefinition {
   owner: Address;
   name: string;
   revision: number;
-  status: "draft" | "paper";
+  status: "draft" | "paper" | "sleeping";
   config: StrategyConfig;
   configHash: string;
   createdAt: number;

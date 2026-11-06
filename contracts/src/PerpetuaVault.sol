@@ -45,6 +45,7 @@ contract PerpetuaVault is ERC4626, Ownable, ReentrancyGuard {
     address public feeManager; // agent runtime: reprices mgmt fee cost-plus each cycle
     address public agentOwner; // receives ownerClaimable
     uint256 public idleBufferBps = 300;
+    uint8 private withdrawalSource; // 0 automatic, 1 cash, 2 safe leg
 
     // ---------------------------------------------------------------- CPPI state
     uint256 public principal; // P
@@ -205,6 +206,19 @@ contract PerpetuaVault is ERC4626, Ownable, ReentrancyGuard {
 
     // =================================================================== ERC-4626 hooks
 
+    /// @notice Owner can redeem capital from a specific allocation, including a losing investment.
+    ///         Token positions must first settle to cash; the safe leg can be withdrawn directly.
+    function withdrawFromInvestment(uint256 assets, address receiver, bool fromSafeLeg)
+        external
+        returns (uint256 shares)
+    {
+        require(msg.sender == agentOwner, "agent owner only");
+        require(withdrawalSource == 0 && assets > 0, "invalid withdrawal");
+        withdrawalSource = fromSafeLeg ? 2 : 1;
+        shares = withdraw(assets, receiver, msg.sender);
+        withdrawalSource = 0;
+    }
+
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares)
         internal
         override
@@ -224,8 +238,24 @@ contract PerpetuaVault is ERC4626, Ownable, ReentrancyGuard {
         uint256 supply = totalSupply();
         // Floor shrinks pro-rata with the shares leaving.
         principal -= supply == 0 ? principal : principal.mulDiv(shares, supply);
-        _ensureLiquid(assets + liabilities());
+        if (withdrawalSource == 1) {
+            uint256 needed = assets + liabilities();
+            if (idle() < needed) _pullFromWallet(needed - idle());
+            if (idle() < needed) revert Insolvent();
+        } else {
+            if (withdrawalSource == 2) {
+                uint256 got = safeLeg.withdraw(assets);
+                if (got < assets) revert Insolvent();
+                safeBasis = got > safeBasis ? 0 : safeBasis - got;
+            }
+            _ensureLiquid(assets + liabilities());
+        }
         super._withdraw(caller, receiver, owner_, assets, shares);
+        // Notify after burning shares/transferring assets so the gate measures remaining capital.
+        // Other depositors and zero-value calls cannot pause someone else's agent.
+        if (assets > 0 && shares > 0 && owner_ == agentOwner && riskGate != address(0)) {
+            IRiskGate(riskGate).onOwnerWithdrawal();
+        }
     }
 
     // =================================================================== income
@@ -280,6 +310,11 @@ contract PerpetuaVault is ERC4626, Ownable, ReentrancyGuard {
         uint256 newPps = _pps();
         if (newPps > highWaterMark) highWaterMark = newPps;
         emit FeesAccrued(mgmt, perf);
+    }
+
+    /// @notice Gate resets the management-fee clock on owner sleep/resume; sleeping time is not billed.
+    function resetFeeClock() external onlyRiskGate {
+        lastFeeAccrual = uint64(block.timestamp);
     }
 
     /// @notice Bills first, profit second. Fees pay the compute bill first; excess fees go to the owner;

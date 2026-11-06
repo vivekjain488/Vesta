@@ -19,7 +19,7 @@ export class Gate {
 
   async flags() {
     const read = (fn: any) => this.c.pub.readContract({ address: this.riskGate, abi: riskGateAbi as any, functionName: fn }) as Promise<any>;
-    const [hibernating, tradingOff, halfSize, haltedUntil, multiplier, eMax, riskTier] = await Promise.all([
+    const [hibernating, tradingOff, halfSize, haltedUntil, multiplier, eMax, riskTier, withdrawalPaused] = await Promise.all([
       read("hibernating"),
       read("tradingOff"),
       read("halfSize"),
@@ -27,8 +27,9 @@ export class Gate {
       read("multiplier"),
       read("eMax"),
       read("riskTier"),
+      read("withdrawalPaused"),
     ]);
-    return { hibernating, tradingOff, halfSize, haltedUntil: Number(haltedUntil), multiplier: Number(multiplier), eMax: eMax as bigint, riskTier: Number(riskTier) };
+    return { hibernating, tradingOff, halfSize, withdrawalPaused: Boolean(withdrawalPaused), haltedUntil: Number(haltedUntil), multiplier: Number(multiplier), eMax: eMax as bigint, riskTier: Number(riskTier) };
   }
 
   async vaultState() {

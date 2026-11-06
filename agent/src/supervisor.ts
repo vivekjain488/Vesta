@@ -1,7 +1,7 @@
 import { configHash, type AgentDefinition } from "@perpetua/core";
 
-export interface HostedWorker { tick(): Promise<unknown>; close?(): Promise<void> }
-interface Slot { revision: string; intervalMs: number; dueAt: number; worker: HostedWorker; busy: boolean }
+export interface HostedWorker { tick(): Promise<unknown>; sleep?(): void; close?(): Promise<void> }
+interface Slot { revision: string; intervalMs: number; dueAt: number; worker: HostedWorker; busy: boolean; enabled: boolean }
 
 /**
  * Server-owned scheduler: one worker per immutable agent ID, never one per login session.
@@ -18,6 +18,10 @@ export class AgentSupervisor {
     const active = new Map(definitions.filter((d) => d.status === "paper").map((d) => [d.id, d]));
     for (const [id, slot] of this.slots) {
       const next = active.get(id);
+      if (!next) {
+        slot.enabled = false;
+        slot.worker.sleep?.(); // cancel subsequent actions inside an already-running read-only cycle
+      }
       const revision = next ? `${next.owner}:${next.revision}:${configHash(next.config)}` : null;
       if (revision === slot.revision) { active.delete(id); continue; }
       if (slot.busy) { active.delete(id); continue; } // finish an in-flight cycle before replacing it
@@ -28,14 +32,14 @@ export class AgentSupervisor {
       if (this.slots.has(id)) continue;
       try {
         const worker = await this.createWorker(structuredClone(definition));
-        this.slots.set(id, { revision: `${definition.owner}:${definition.revision}:${configHash(definition.config)}`, intervalMs: definition.config.execution.pollSeconds * 1000, dueAt: 0, worker, busy: false });
+        this.slots.set(id, { revision: `${definition.owner}:${definition.revision}:${configHash(definition.config)}`, intervalMs: definition.config.execution.pollSeconds * 1000, dueAt: 0, worker, busy: false, enabled: true });
       } catch (e) { this.report(id, e); }
     }
   }
   async step(now = Date.now()) {
     if (this.stopped) return;
     await Promise.all([...this.slots.entries()].map(async ([id, slot]) => {
-      if (slot.busy || now < slot.dueAt) return;
+      if (!slot.enabled || slot.busy || now < slot.dueAt) return;
       slot.busy = true;
       try { await slot.worker.tick(); } catch (e) { this.report(id, e); }
       finally { slot.busy = false; slot.dueAt = now + slot.intervalMs; }

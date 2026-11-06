@@ -20,8 +20,15 @@ import { checkEntry, riskGateAbi, STRATEGY_TEMPLATES, templateConfig, type RiskC
 import { AgentDefinitions, type ConfigAction } from "./agent-definitions";
 import { compileStrategy } from "../../agent/src/strategy-compiler";
 import { ZeroGBrain } from "../../agent/src/zerog";
+import { FlashHttp } from "../../agent/src/flash";
+import { investments, saveExitRequest } from "./investments";
+import { WalletSessions, SESSION_COOKIE } from "./sessions";
+import { Platform } from "./platform";
+import { chainOperation, localPriceUsd, prepareLocalWithdrawal, refreshLocalRisk } from "./local-withdrawals";
+import { deployLocalAgent, localFaucet } from "./local-agents";
+import { pendingWithdrawals, finishWithdrawals, startLocalRuntime } from "./local-runtime";
 import { ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
-import { createPublicClient, hexToString, http, keccak256, toBytes, type Address, type Hex } from "viem";
+import { createPublicClient, erc20Abi, hexToString, http, keccak256, toBytes, parseUnits, formatUnits, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const PORT = Number(process.env.API_PORT ?? 8787);
@@ -39,30 +46,104 @@ const writer = new ArkivWriter("api", { intervalMs: 60_000 });
 writer.start();
 
 const app = express();
+const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:3000";
+const sessions = new WalletSessions(appOrigin);
+const sessionOwner = (req: express.Request) => sessions.read(req.headers.cookie)?.address as Address;
 app.use(express.json({ limit: "64kb" }));
-app.use((_, res, next) => {
-  res.setHeader("access-control-allow-origin", "*");
+app.use((req, res, next) => {
+  const origin = req.header("origin");
+  if (origin && origin !== appOrigin) return void res.status(403).json({ error: "Origin not allowed" });
+  if (origin) res.setHeader("access-control-allow-origin", origin);
+  res.setHeader("access-control-allow-credentials", "true");
+  res.setHeader("vary", "Origin");
   res.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type, x-payment, payment-signature");
   res.setHeader("access-control-expose-headers", "x-payment-response, payment-response");
   next();
 });
 app.options(/.*/, (_, res) => void res.sendStatus(204));
+app.post("/auth/challenge", (req, res) => {
+  try { res.json(sessions.challenge(req.body.address, req.body.chainId)); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/auth/verify", async (req, res) => {
+  try { const s = await sessions.verify(req.body.nonce, req.body.signature); res.setHeader("set-cookie", sessions.cookie(s.token)); res.json({ address: s.address, expires: s.expires }); }
+  catch (e) { res.status(401).json({ error: (e as Error).message }); }
+});
+app.get("/auth/session", (req, res) => { const session = sessions.read(req.headers.cookie); res.setHeader("cache-control", "no-store"); if (!session) return void res.status(401).json({ error: "Sign in with MetaMask" }); res.json(session); });
+app.post("/auth/logout", (req, res) => { sessions.logout(req.headers.cookie); res.setHeader("set-cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`); res.json({ ok: true }); });
+app.use("/v1", (req, res, next) => {
+  res.setHeader("cache-control", "no-store");
+  if (!sessions.read(req.headers.cookie)) return void res.status(401).json({ error: "Sign in with MetaMask" });
+  next();
+});
 
 // Owner configuration is independent of operator keys and on-chain deployment. These are drafts/paper only.
 const definitions = new AgentDefinitions(STATE, process.env.CONFIG_AUTH_AUDIENCE ?? `http://localhost:${PORT}`);
+const platform = new Platform(STATE);
+const requireAgentOwner = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try { if (!await platform.owns(String(req.params.agent ?? req.params.name), sessionOwner(req))) return void res.status(403).json({ error: "Agent belongs to another wallet" }); next(); }
+  catch (e) { res.status(404).json({ error: (e as Error).message }); }
+};
+app.get("/v1/dashboard", async (req, res) => {
+  try {
+    const rows = await Promise.all(platform.agents().map((a) => platform.summary(a)));
+    const owned = rows.filter((a) => a.owner.toLowerCase() === sessionOwner(req).toLowerCase()).map((a) => ({ ...a, status: pendingWithdrawals(platform, a.id).length ? "withdrawing" : a.status }));
+    const bound = new Set(owned.map((a) => a.id));
+    const drafts = definitions.list(sessionOwner(req)).filter((a) => !bound.has(a.id)).map((a) => ({ id: a.id, name: a.name, status: a.status, strategy: a.config.template, riskTier: "balanced", chain: null, runtime: null, profit: 0 }));
+    res.json([...owned, ...drafts]);
+  } catch (e) { res.status(503).json({ error: (e as Error).message }); }
+});
+app.get("/v1/leaderboard", async (_, res) => {
+  try { const rows = await Promise.all(platform.agents().filter((a) => a.platformAgent).map((a) => platform.summary(a))); res.json(rows.sort((a, b) => b.profit - a.profit).map((a) => ({ name: a.name, profit: a.profit }))); }
+  catch (e) { res.status(503).json({ error: (e as Error).message }); }
+});
+app.get("/v1/history/:agent", requireAgentOwner, async (req, res) => {
+  try { res.json(await platform.history(String(req.params.agent))); } catch (e) { res.status(503).json({ error: (e as Error).message }); }
+});
+app.post("/v1/agents/:agent/prepare-withdrawal", requireAgentOwner, async (req, res) => {
+  try { const payload = req.body.payload; if (payload?.agent !== req.params.agent) throw new Error("Agent mismatch"); const owner = await requireConfigAuth(req, "withdraw", payload); res.json(await prepareLocalWithdrawal(platform, owner, payload)); }
+  catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/v1/agents/:agent/refresh", requireAgentOwner, async (req, res) => {
+  try { const id = String(req.params.agent); if (req.body?.resume === true) finishWithdrawals(platform, id, "cancelled"); res.json({ transactionHash: await chainOperation(() => refreshLocalRisk(platform, id)) }); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/v1/agents/:agent/withdrawal-complete", requireAgentOwner, async (req, res) => {
+  try {
+    const id = String(req.params.agent); const a = platform.agent(id); const hash = req.body.transactionHash as Hex;
+    const receipt = await platform.pub.getTransactionReceipt({ hash });
+    const events = await platform.pub.getContractEvents({ address: a.vault, abi: (await import("@perpetua/core")).perpetuaVaultAbi, eventName: "Withdraw", fromBlock: receipt.blockNumber, toBlock: receipt.blockNumber });
+    if (receipt.status !== "success" || !events.some((e) => e.transactionHash === hash && e.args.owner?.toLowerCase() === sessionOwner(req).toLowerCase() && (e.args.assets ?? 0n) > 0n)) throw new Error("No confirmed owner withdrawal found");
+    for (const request of pendingWithdrawals(platform, id)) {
+      if (!request.settledAtBlock || receipt.blockNumber <= BigInt(request.settledAtBlock)) throw new Error("Use the withdrawal transaction confirmed after this position exit settled");
+      if (request.scope === "all" && await platform.pub.readContract({ address: a.vault, abi: (await import("@perpetua/core")).perpetuaVaultAbi, functionName: "balanceOf", args: [sessionOwner(req)] }) !== 0n) throw new Error("Withdraw all has not redeemed all owner shares");
+    }
+    finishWithdrawals(platform, id, "completed", hash); res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.post("/v1/agent-definitions/:id/deploy", async (req, res) => {
+  try {
+    const d = definitions.get(String(req.params.id)); if (d.owner.toLowerCase() !== sessionOwner(req).toLowerCase()) return void res.status(403).json({ error: "Agent belongs to another wallet" });
+    const result = await deployLocalAgent(platform, d); if (d.status !== "paper") definitions.save(d.owner, { name: d.name, config: d.config, status: "paper", revision: d.revision }, d.id); res.json(result);
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
+app.get("/v1/network", async (req, res) => {
+  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL, usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", balanceUsdc: formatUnits(balance, 6) }); }
+  catch (e) { res.status(503).json({ error: (e as Error).message }); }
+});
+app.post("/v1/local-faucet", async (req, res) => { try { res.json(await localFaucet(platform, sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); } });
 let compiler: ZeroGBrain | undefined;
 let compiling = false;
 const requireConfigAuth = async (req: express.Request, action: ConfigAction, payload: unknown) => {
   const { owner, nonce, signature } = req.body ?? {};
+  if (String(owner).toLowerCase() !== sessionOwner(req).toLowerCase()) throw new Error("Session wallet does not match owner");
   return definitions.authorize(owner, action, payload, nonce, signature);
 };
 app.get("/v1/strategy-templates", (_, res) => res.json(STRATEGY_TEMPLATES.map((t) => ({ ...t, config: templateConfig(t.id), liveSupported: false }))));
 app.get("/v1/agent-definitions", (req, res) => {
-  try { res.json(definitions.list(req.query.owner)); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  try { res.json(definitions.list(sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
 app.post("/v1/config/challenge", (req, res) => {
-  try { res.json(definitions.challenge(req.body.owner, req.body.action, req.body.payload)); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  try { if (String(req.body.owner).toLowerCase() !== sessionOwner(req).toLowerCase()) throw new Error("Session wallet does not match owner"); res.json(definitions.challenge(req.body.owner, req.body.action, req.body.payload)); } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
 app.post("/v1/agent-definitions", async (req, res) => {
   try {
@@ -74,6 +155,10 @@ app.put("/v1/agent-definitions/:id", async (req, res) => {
   try {
     const id = String(req.params.id);
     const owner = await requireConfigAuth(req, "update", { ...req.body.payload, id });
+    if (platform.agents().some((a) => a.id === id)) {
+      const current = definitions.get(id);
+      if (JSON.stringify(current.config) !== JSON.stringify(req.body.payload.config) || current.name !== req.body.payload.name) throw new Error("This deployed agent's strategy is fixed. Create another agent to use different settings.");
+    }
     res.json(definitions.save(owner, req.body.payload, id));
   } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
@@ -137,6 +222,42 @@ const readJson = (f: string, d: any) => (existsSync(f) ? JSON.parse(readFileSync
 const agentsOnDisk = () => readdirSync(STATE).filter((f) => f.startsWith("agent-") && f.endsWith(".json")).map((f) => f.slice(6, -5));
 const signalsOf = (agent: string) => readJson(`${STATE}/signals-${agent}.json`, []) as any[];
 const bigintJson = (o: unknown) => JSON.parse(JSON.stringify(o, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+
+async function currentInvestments(name: string) {
+  if (!/^[A-Za-z0-9_-]{1,60}$/.test(name)) throw new Error("Invalid agent name");
+  const file = process.env.DEPLOYMENT_FILE ?? resolve(STATE, "../contracts/deployments/local-31337.json");
+  const dep = readJson(file, null);
+  if (!dep || !Object.hasOwn(dep, name)) throw new Error("Agent has no verified deployment");
+  const a = typeof dep[name] === "string" ? JSON.parse(dep[name]) : dep[name];
+  if (!a?.vault || !a?.riskGate || !a?.wallet) throw new Error("Agent has no verified deployment");
+  const pub = createPublicClient({ transport: http(process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545") });
+  const block = await pub.getBlock();
+  const read = (address: Address, abi: any, functionName: string, args: any[] = []) => pub.readContract({ address, abi, functionName, args, blockNumber: block.number });
+  const state = readJson(`${STATE}/agent-${name}.json`, { trades: {} });
+  const flash = process.env.FLASH_MODE === "live" && FLASH_KEY ? new FlashHttp(FLASH_BASE, FLASH_KEY) : null;
+  const local = process.env.FLASH_MODE === "sim" && await pub.getChainId() === 31337;
+  const result = await investments(read, dep, a, Object.values(state.trades ?? {}), local ? async (token, amount) => Number(amount) * localPriceUsd(String(await pub.readContract({ address: token, abi: (await import("viem")).erc20Abi, functionName: "symbol" }))) : flash ? async (token, amount) => {
+    const q = await flash.quote({ targetChain: process.env.FLASH_CHAIN ?? "base", contraChain: process.env.FLASH_CHAIN ?? "base", targetAsset: token, contraAsset: dep.usdc, side: "sell", qty: amount, orderType: "market", funderAddress: a.wallet, maxSlippage: "0.005" });
+    if (!q.to || q.to.asset !== "contra") throw new Error("No USDC exit quote");
+    return Number(q.to.amount);
+  } : undefined);
+  return { ...result, withdrawalPending: pendingWithdrawals(platform, name).length > 0, exitExecutionAvailable: local, chainId: await pub.getChainId(), blockNumber: block.number.toString(), observedAt: Number(block.timestamp) };
+}
+app.get("/v1/investments/:agent", requireAgentOwner, async (req, res) => {
+  try { res.json(await currentInvestments(String(req.params.agent))); }
+  catch (e) { res.status(503).json({ error: (e as Error).message }); }
+});
+app.post("/v1/investment-exit-requests", async (req, res) => {
+  try {
+    const payload = req.body.payload;
+    const owner = await requireConfigAuth(req, "request-exit", payload);
+    const current = await currentInvestments(payload?.agent);
+    if (current.owner !== owner) throw new Error("This wallet does not own the agent");
+    const position = current.investments.find((p) => p.kind === "spot" && p.token.toLowerCase() === String(payload.token).toLowerCase());
+    if (!position || typeof payload.amount !== "string" || !/^\d{1,78}$/.test(payload.amount) || BigInt(payload.amount) > parseUnits(position.amount, position.decimals)) throw new Error("Exit amount exceeds current position");
+    res.status(202).json(saveExitRequest(resolve(STATE, "withdrawal-requests"), owner, payload));
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+});
 
 // ------------------------------------------------------------------------------------------- paid
 app.post("/v1/signal", (req, res) => {
@@ -251,7 +372,7 @@ app.get("/v1/deployment", (_, res) => {
 });
 
 /** Agent runtime state (trades, tier, burn) as published by the agent itself. Mirrors what it writes to Arkiv. */
-app.get("/v1/state/:agent", (req, res) => {
+app.get("/v1/state/:agent", requireAgentOwner, (req, res) => {
   const st = readJson(`${STATE}/agent-${req.params.agent}.json`, null);
   if (!st) return void res.status(404).json({ error: "unknown agent" });
   const now = Math.floor(Date.now() / 1000);
@@ -314,3 +435,4 @@ app.post("/v1/copy/order", async (req, res) => {
 app.get("/health", (_, res) => void res.json({ ok: true, paid: !!PAY_TO, network: NETWORK }));
 
 app.listen(PORT, () => console.log(`[api] http://localhost:${PORT}  (state ${STATE})`));
+startLocalRuntime(platform, definitions);

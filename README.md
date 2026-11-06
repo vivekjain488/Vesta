@@ -22,9 +22,11 @@ Perpetua is an on-chain principal-protected note (Endowment-CPPI) managed by an 
 
 ## Configurable agents and hosted runtime
 
-The new `/studio` flow lets one wallet create multiple signed strategy drafts, choose spot/futures research templates, and request a custom strategy schema from a verified live 0G provider. Model selection combines each agent's allocated capital and compute runway; small allocations use cheaper models. A server-side supervisor and bounded paper harness provide one-minute monitoring, read-only AI tool decisions, and fresh post-inference risk checks.
+Open **http://localhost:3000** and sign in with MetaMask. The dashboard lists only your agents; the leaderboard lists agent names and cumulative profits. Create multiple agents, select a strategy and limits, then add local test funds and deposit through MetaMask. The backend deploys isolated local contracts and keeps spot agents running without the browser open.
 
-This is a foundation: saving a definition does not deploy contracts, deposit funds, or enable live futures. The existing Flash path remains spot-only. See [setup, API and current boundaries](docs/agent-platform.md), [futures research](docs/research/futures-strategies.md), [sponsor evidence research](docs/research/sponsor-integration.md), and the [paid WebSocket idea](docs/future-scope.md).
+Each agent shows its transaction history and current investments, including losing positions. Withdraw individual allocations or withdraw all, including protected lending; underfunded agents sleep. The local product integration check exercises real Anvil token settlement and wallet payouts: `pnpm exec tsx scripts/local-product-smoke.ts` while the API and Anvil are running.
+
+Local trading and inference use synthetic data, mock tokens and simulated AI. The funded Arkiv Signature Atlas importer is live on Rabdi. Live 0G prompt compilation, derivatives execution and cross-chain deployment still require their provider/venue/network setup. See [runtime and setup](docs/agent-platform.md), [withdrawals](docs/withdrawals.md), [research](docs/research/futures-strategies.md), and the [paid WebSocket idea](docs/future-scope.md).
 
 ---
 

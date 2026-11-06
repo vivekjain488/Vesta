@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { verifyMessage, type Hex } from "viem";
 import { configAuthMessage, configHash, ownerAddress, validateStrategyConfig, type AgentDefinition } from "@perpetua/core";
 
-export type ConfigAction = "create" | "update" | "compile";
+export type ConfigAction = "create" | "update" | "compile" | "request-exit" | "withdraw";
 /** Single-process signed configuration service; deployment/runtime keys never enter this store. */
 export class AgentDefinitions {
   private readonly challenges = new Map<string, { owner: string; action: ConfigAction; hash: string; message: string; expiresAt: number }>();
@@ -15,7 +15,7 @@ export class AgentDefinitions {
   }
   challenge(ownerInput: unknown, action: ConfigAction, payload: unknown, now = Date.now()) {
     const owner = ownerAddress(ownerInput);
-    if (!["create", "update", "compile"].includes(action)) throw new Error("Unknown configuration action");
+    if (!["create", "update", "compile", "request-exit", "withdraw"].includes(action)) throw new Error("Unknown configuration action");
     for (const [key, value] of this.challenges) if (value.expiresAt < now) this.challenges.delete(key);
     if (this.challenges.size >= 1000) throw new Error("Too many pending signing requests");
     const nonce = randomBytes(24).toString("hex");
@@ -46,7 +46,7 @@ export class AgentDefinitions {
   save(ownerInput: unknown, payload: any, id?: string): AgentDefinition {
     const owner = ownerAddress(ownerInput);
     if (!payload || typeof payload.name !== "string" || !/^[\p{L}\p{N} _-]{1,60}$/u.test(payload.name.trim())) throw new Error("Name must contain 1–60 letters, digits, spaces, underscores or hyphens");
-    if (payload.status !== "draft" && payload.status !== "paper") throw new Error("Definitions support draft or paper mode only");
+    if (!["draft", "paper", "sleeping"].includes(payload.status)) throw new Error("Definitions support draft, paper or sleeping mode only");
     const config = validateStrategyConfig(payload.config);
     const previous = id ? this.get(id) : null;
     if (previous && previous.owner !== owner) throw new Error("This wallet does not own the agent");

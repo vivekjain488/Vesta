@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch } from "@/lib/api";
 import { useState } from "react";
 import { API } from "@/lib/data";
 import { useWallet } from "./Wallet";
@@ -20,10 +21,10 @@ export function CopyPanel({ agent, hasOpenTrade }: { agent: string; hasOpenTrade
     try {
       const follower = w.address ?? await w.connect();
       if (!follower) throw new Error("Connect a wallet first");
-      const q = await (await fetch(`${API}/v1/copy/quote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, follower, capUsd: cap }) })).json();
+      const q = await (await apiFetch(`${API}/v1/copy/quote`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, follower, capUsd: cap }) })).json();
       if (q.error) throw new Error(q.error);
       if (q.simulated) {
-        const o = await (await fetch(`${API}/v1/copy/order`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, order: { ...q.request, userSignature: "0xsim" } }) })).json();
+        const o = await (await apiFetch(`${API}/v1/copy/order`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, order: { ...q.request, userSignature: "0xsim" } }) })).json();
         setStatus(`Simulated copy placed (API has no Flash key). Order ${o.orderId}`);
         return;
       }
@@ -31,7 +32,7 @@ export function CopyPanel({ agent, hasOpenTrade }: { agent: string; hasOpenTrade
       if (!td) throw new Error("Flash quote returned no EVM order to sign");
       const userSignature = await w.signTypedDataJson(td);
       const order = { ...q.request, quoteId: q.quote.quoteId, userSignature, evmOrderTypedData: td };
-      const r = await (await fetch(`${API}/v1/copy/order`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, order }) })).json();
+      const r = await (await apiFetch(`${API}/v1/copy/order`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent, order }) })).json();
       setStatus(r.orderId ? `Copied. Flash order ${r.orderId}` : `Flash: ${JSON.stringify(r).slice(0, 160)}`);
     } catch (e) {
       setStatus((e as Error).message);

@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch } from "@/lib/api";
 import { useState } from "react";
 import { API } from "@/lib/data";
 
@@ -25,7 +26,7 @@ export default function Atlas() {
     setRows(null);
     const s = sel.trim().toLowerCase();
     if (!/^0x[0-9a-f]{8}([0-9a-f]{56})?$/.test(s)) return setErr("Enter a 4-byte function selector (0x + 8 hex) or a 32-byte event topic.");
-    const r = await fetch(`${API}/v1/atlas/${s}`).catch(() => null);
+    const r = await apiFetch(`${API}/v1/atlas/${s}`).catch(() => null);
     if (!r) return setErr("API offline.");
     const j = await r.json();
     if (!r.ok) return setErr(j.error ?? "lookup failed");

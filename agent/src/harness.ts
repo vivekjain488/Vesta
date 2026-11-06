@@ -25,6 +25,7 @@ export interface HarnessEvent {
  */
 export class PaperHarness {
   private running = false;
+  private sleeping = false;
   private readonly evaluated = new Set<string>();
   private readonly definition: AgentDefinition;
   private spendDay = -1;
@@ -40,14 +41,16 @@ export class PaperHarness {
   private record(type: string, data: unknown) {
     this.emit({ agentId: this.definition.id, owner: this.definition.owner, configHash: this.definition.configHash, at: this.now(), type, data });
   }
+  sleep() { this.sleeping = true; }
   async tick() {
-    if (this.running) return { skipped: true };
+    if (this.running || this.sleeping) return { skipped: true };
     this.running = true;
     try {
       const config = this.definition.config;
       for (const symbol of config.symbols) {
         const observedAt = this.now();
         const knowledge = await this.tools.market(symbol);
+        if (this.sleeping) return { skipped: true };
         if (!knowledge.source || knowledge.fetchedAt > this.now() || this.now() - knowledge.fetchedAt > config.execution.maxDecisionAgeSeconds) throw new Error("Market knowledge is stale or has no provenance");
         const candidate = futuresCandidate(config, symbol, knowledge.bars, observedAt);
         this.record("observation", { symbol, source: knowledge.source, fetchedAt: knowledge.fetchedAt, candidate });
@@ -58,6 +61,7 @@ export class PaperHarness {
         if (this.brain) {
           const account = await this.tools.account();
           const policy = capitalModelPolicy(config, account.equityUsd, await this.brain.ledgerOg());
+          if (this.sleeping) return { skipped: true };
           const day = Math.floor(this.now() / 86400);
           if (day !== this.spendDay) { this.spendDay = day; this.spentOg = 0; this.budgetBlocked = false; }
           if (!policy.model || this.budgetBlocked || this.spentOg >= config.compute.maxDailySpendOg) {
@@ -73,6 +77,10 @@ export class PaperHarness {
             if (!Number.isFinite(result.costOg) || result.costOg <= 0) this.budgetBlocked = true;
             else this.spentOg += result.costOg;
           }
+          if (this.sleeping) {
+            this.record("inference_finished_after_sleep", { chatId: result?.chatId, costOg: result?.costOg ?? null, execution: "not_submitted" });
+            return { skipped: true };
+          }
           if (!result || result.verified !== true || this.brain.mode !== "live") {
             this.record("wait", { symbol, reason: "No verified live reasoning; no AI-authorized evaluation" });
             continue;
@@ -83,6 +91,7 @@ export class PaperHarness {
           actions = plan.actions;
         }
         for (const action of actions) {
+          if (this.sleeping) return { skipped: true };
           if (action.tool === "wait") { this.record("wait", { symbol }); break; }
           if (action.tool === "inspect_account") this.record("account", await this.tools.account());
           if (action.tool === "resolve_selector") {
@@ -92,7 +101,9 @@ export class PaperHarness {
           if (action.tool === "evaluate") {
             // Force fresh inputs AFTER model and tool latency; original observedAt is preserved.
             const quote = await this.tools.execution(symbol);
+            if (this.sleeping) return { skipped: true };
             const account = await this.tools.account();
+            if (this.sleeping) return { skipped: true };
             const verdict = preflightFutures(config, candidate, quote, account, this.now());
             this.record("paper_preflight", { symbol, candidate, quote, account, verdict, inferenceMode: this.brain ? "0g" : "rules", execution: "not_submitted" });
             if (verdict.ok) this.evaluated.add(key);

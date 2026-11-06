@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { AGENTS, deployment, getJson, readAgent, type AgentRuntime, type OnChainAgent } from "@/lib/data";
+import { getJson, type AgentRuntime, type OnChainAgent } from "@/lib/data";
 
 export interface AgentView {
+  id: string;
+  profit?: number;
+  status?: string;
   name: string;
   strategy: string;
   riskTier: string;
@@ -12,27 +15,22 @@ export interface AgentView {
 
 /** Polls RiskGate/vault on-chain + the agent's published runtime state. */
 export function useAgents(intervalMs = 8000) {
-  const [agents, setAgents] = useState<AgentView[]>(AGENTS.map((a) => ({ ...a, chain: null, runtime: null })));
+  const [agents, setAgents] = useState<AgentView[]>([]);
   const [online, setOnline] = useState<boolean | null>(null);
   useEffect(() => {
     let stop = false;
     const load = async () => {
-      const dep = await deployment();
-      setOnline(!!dep);
-      const rows = await Promise.all(
-        AGENTS.map(async (a) => ({
-          ...a,
-          chain: dep ? await readAgent(dep, a.name) : null,
-          runtime: await getJson<any>(`/v1/state/${a.name}`),
-        })),
-      );
-      if (!stop) setAgents(rows);
+      const rows = await getJson<AgentView[]>("/v1/dashboard");
+      setOnline(rows !== null);
+      if (!stop) setAgents(rows ?? []);
     };
     load();
     const t = setInterval(load, intervalMs);
+    window.addEventListener("perpetua:capital-changed", load);
     return () => {
       stop = true;
       clearInterval(t);
+      window.removeEventListener("perpetua:capital-changed", load);
     };
   }, [intervalMs]);
   return { agents, online };

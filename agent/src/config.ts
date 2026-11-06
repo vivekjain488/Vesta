@@ -2,7 +2,7 @@ import "dotenv/config";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Address, Hex } from "viem";
-import type { StrategyKind } from "@perpetua/core";
+import type { StrategyKind, StrategyConfig } from "@perpetua/core";
 
 export interface AssetCfg {
   symbol: string; // LINK | ETH | cbBTC
@@ -46,6 +46,7 @@ export function loadConfig() {
     repoRoot,
     agentName,
     strategy,
+    strategyConfig: undefined as StrategyConfig | undefined,
     agentId: a.agentId as Hex,
     vault: a.vault as Address,
     wallet: a.wallet as Address,

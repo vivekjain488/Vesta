@@ -21,7 +21,7 @@ const supervisor = new AgentSupervisor(async (definition) => {
   const tools = await backend.createTools(definition);
   const brain = await backend.createBrain?.(definition);
   const harness = new PaperHarness(definition, tools, (event) => appendFileSync(resolve(root, `harness-${definition.id}.jsonl`), JSON.stringify(event) + "\n"), brain);
-  return { tick: () => harness.tick() };
+  return { tick: () => harness.tick(), sleep: () => harness.sleep() };
 }, (id, error) => console.error(`[hosted:${id}]`, (error as Error).message));
 
 function definitions(): AgentDefinition[] {

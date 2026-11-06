@@ -74,13 +74,13 @@ export function classifyRegime(bars: Bar[]) {
   return { regime, highVol, ema50: e50, ema200: e200, dailyVol: Number.isNaN(cur) ? 0 : cur };
 }
 
-export function scoreFactors(ctx: MarketContext): FactorScores & { rsi: number } {
+export function scoreFactors(ctx: MarketContext, breakoutBars = 20): FactorScores & { rsi: number } {
   const closes = ctx.bars.map((b) => b.c);
   const close = last(closes);
   // Trend: EMA20/50 slope + 20-bar Donchian breakout
   const s20 = Math.tanh(slope(ema(closes, 20), 5) * 25);
   const s50 = Math.tanh(slope(ema(closes, 50), 5) * 25);
-  const dc = donchian(ctx.bars, 20);
+  const dc = donchian(ctx.bars, breakoutBars);
   const breakout = close > last(dc.upper) ? 1 : close < last(dc.lower) ? -1 : 0;
   const trend = clamp(((s20 + s50) / 2) * 0.6 + breakout * 0.4);
 
@@ -116,6 +116,10 @@ export function scoreFactors(ctx: MarketContext): FactorScores & { rsi: number }
 }
 
 export interface SignalOptions {
+  stopAtr?: number;
+  targetAtr?: number;
+  breakoutBars?: number;
+  rsiOversold?: number;
   kind?: StrategyKind;
   minScore?: number; // 0.35
   minAgreeing?: number; // 3 of 5
@@ -136,7 +140,7 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   const close = last(closes);
   const a = last(atr(ctx.bars, 14));
   const { regime, highVol } = classifyRegime(ctx.bars);
-  const f = scoreFactors(ctx);
+  const f = scoreFactors(ctx, opts.breakoutBars);
   const factors: FactorScores = {
     trend: f.trend,
     sentiment: f.sentiment,
@@ -150,8 +154,8 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   );
   const agreeing = Object.values(factors).filter((x) => x > 0).length;
 
-  const stop = close - 2 * a;
-  const target = close + 4 * a;
+  const stop = close - (opts.stopAtr ?? 2) * a;
+  const target = close + (opts.targetAtr ?? 4) * a;
   const rewardRisk = (target - close) / (close - stop);
   const atrPct = a / close;
   const regimeMult = regime === "uptrend" ? 1 : regime === "range" ? 0.5 : 0;
@@ -194,7 +198,7 @@ export function generateSignal(ctx: MarketContext, opts: SignalOptions = {}): Si
   }
   if (kind === "mean-reversion") {
     if (regime !== "range") return reject("mean-reversion trades range regimes only");
-    if (f.rsi > 40) return reject("mean-reversion: rsi not oversold");
+    if (f.rsi > (opts.rsiOversold ?? 40)) return reject("mean-reversion: rsi not oversold");
     return { ...base, direction: "long", orderType: "limit", entry: close - 0.5 * a };
   }
   // momentum (default)
