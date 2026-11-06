@@ -18,10 +18,40 @@ describe("0G Router",()=>{
   const r=await brain.think(policy,[{role:"user",content:"Test"}],80);
   expect(sent.url).toBe("https://router.example/v1/chat/completions");
   expect(sent.init.headers.authorization).toBe("Bearer test-key");
+  expect(sent.init.headers["X-0G-Provider-Trust-Mode"]).toBe("verified");
+  expect(sent.init.headers["X-0G-Provider-Sort"]).toBe("latency");
   expect(JSON.parse(sent.init.body)).toMatchObject({model:"small",verify_tee:true,stream:false});
   expect(r).toMatchObject({verified:true,tee:null,costOg:0.001,chatId:"request-1",verificationSource:"0g-router"});
+  expect(r?.latencyMs).toBeGreaterThanOrEqual(0);
   await expect(brain.ledgerOg()).rejects.toThrow("management key");
   await expect(brain.depositOg(1)).rejects.toThrow("direct SDK");
+ });
+ it("supports price routing explicitly and rejects invalid sorting",async()=>{
+  let sort="";
+  const brain=new ZeroGRouterBrain({...cfg,providerSort:"price"},(async(_url,init)=>{sort=(init?.headers as Record<string,string>)["X-0G-Provider-Sort"];return reply();}) as typeof fetch);
+  await brain.think(policy,[{role:"user",content:"Test"}],10);expect(sort).toBe("price");
+  expect(()=>new ZeroGRouterBrain({...cfg,providerSort:"fastest"})).toThrow("ZG_PROVIDER_SORT");
+ });
+ it("applies optional provider price ceilings and rejects invalid values",async()=>{
+  let headers:Record<string,string>={};
+  const brain=new ZeroGRouterBrain({...cfg,maxPromptUsdPerMillion:"0.5",maxCompletionUsdPerMillion:"2"},(async(_url,init)=>{headers=init?.headers as Record<string,string>;return reply();}) as typeof fetch);
+  await brain.think(policy,[{role:"user",content:"Test"}],10);
+  expect(headers["X-0G-Provider-Max-Price-Usd-Prompt"]).toBe("0.5");expect(headers["X-0G-Provider-Max-Price-Usd-Completion"]).toBe("2");
+  expect(()=>new ZeroGRouterBrain({...cfg,maxPromptUsdPerMillion:"-1"})).toThrow("price caps");
+ });
+ it("only disables thinking for 0GM when explicitly configured",async()=>{
+  let body:any;
+  const send=(async(_url:any,init:any)=>{body=JSON.parse(init.body);return reply();}) as typeof fetch;
+  await new ZeroGRouterBrain({...cfg,modelSmall:"0gm-1.0-35b-a3b",disable0gmThinking:true},send).think(policy,[{role:"user",content:"Test"}],10);
+  expect(body.chat_template_kwargs).toEqual({enable_thinking:false});
+  await new ZeroGRouterBrain({...cfg,disable0gmThinking:true},send).think(policy,[{role:"user",content:"Test"}],10);
+  expect(body.chat_template_kwargs).toBeUndefined();
+ });
+ it("explains unavailable verified providers and model access without retries",async()=>{
+  for(const [status,code,expected] of [[503,"no_provider_for_trust_mode",/No verified 0G provider/],[403,"model_not_allowed",/not allowed to use model/]] as const){
+   let calls=0;const brain=new ZeroGRouterBrain(cfg,(async()=>{calls++;return new Response(JSON.stringify({error:{code}}),{status});}) as typeof fetch);
+   await expect(brain.think(policy,[{role:"user",content:"Test"}],10)).rejects.toThrow(expected);expect(calls).toBe(1);
+  }
  });
  it("distinguishes insufficient credits from authentication and never retries a billed call",async()=>{
   let calls=0;

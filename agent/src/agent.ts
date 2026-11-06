@@ -144,7 +144,7 @@ export class PerpetuaAgent {
   static async create(cfg: Config) {
     const brain: Brain =
       cfg.zeroG.mode === "router"
-        ? new ZeroGRouterBrain({ ...cfg.zeroG, stateFile: `${stateDir()}/0g-router-${cfg.agentName}-budget.json` })
+        ? new ZeroGRouterBrain({ ...cfg.zeroG, stateFile: `${stateDir()}/0g-router-${cfg.agentName}-budget.json`, providerSort: process.env.ZG_PROVIDER_SORT, maxPromptUsdPerMillion: process.env.ZG_MAX_PROMPT_USD_PER_MILLION, maxCompletionUsdPerMillion: process.env.ZG_MAX_COMPLETION_USD_PER_MILLION, disable0gmThinking: process.env.ZG_0GM_DISABLE_THINKING === "true" })
         : cfg.zeroG.mode === "live"
         ? await new ZeroGBrain({ ...cfg.zeroG, initializeLedger: false }).init()
         : new SimBrain({

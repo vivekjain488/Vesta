@@ -99,7 +99,7 @@ export class MinuteHarness {
       const request = record("inference_requested", { stage: stage.name, backend: inference.backend, testingOnly: inference.testingOnly, promptVersion: 2, inputHash: configHash(researchMessages), reservedTokens: bytes + maxOutput, messages: researchMessages });
       const result = await inference.complete({ ...tierFor(72), model: "small", maxPromptTokens: Math.ceil(bytes / 4) + 128 }, researchMessages, maxOutput, abort);
       abort.throwIfAborted();
-      record("inference_result", { requestId: request.id, stage: stage.name, backend: inference.backend, testingOnly: inference.testingOnly, verificationSource: result?.verificationSource, chatId: result?.chatId, model: result?.model, provider: result?.provider, verified: result?.verified, tokens: result?.tokens, billing: result?.billing, costOg: Number.isFinite(result?.costOg) ? result!.costOg : null, output: result?.content });
+      record("inference_result", { requestId: request.id, stage: stage.name, backend: inference.backend, testingOnly: inference.testingOnly, verificationSource: result?.verificationSource, chatId: result?.chatId, model: result?.model, provider: result?.provider, verified: result?.verified, tokens: result?.tokens, latencyMs: result?.latencyMs, billing: result?.billing, costOg: Number.isFinite(result?.costOg) ? result!.costOg : null, output: result?.content });
       if (!acceptsInference(inference, result, a.mode === "analysis" ? "analysis" : "execution") || !result) throw new Error("unverified_or_missing_inference");
       const report = parseResearch(result.content, stage.fields);
       record("research_report", { stage: stage.name, report });
@@ -115,7 +115,7 @@ export class MinuteHarness {
       const request = record("inference_requested", { turn, backend: inference.backend, testingOnly: inference.testingOnly, promptVersion: 1, inputHash: configHash(messages), reservedTokens: bytes + maxOutput, messages });
       const result = await inference.complete({ ...tierFor(72), model: "small", maxPromptTokens: Math.ceil(bytes / 4) + 128 }, messages, maxOutput, abort);
       abort.throwIfAborted();
-      record("inference_result", { requestId: request.id, backend: inference.backend, testingOnly: inference.testingOnly, verificationSource: result?.verificationSource, chatId: result?.chatId, model: result?.model, provider: result?.provider, verified: result?.verified, tokens: result?.tokens, billing: result?.billing, costOg: Number.isFinite(result?.costOg) ? result!.costOg : null, output: result?.content });
+      record("inference_result", { requestId: request.id, backend: inference.backend, testingOnly: inference.testingOnly, verificationSource: result?.verificationSource, chatId: result?.chatId, model: result?.model, provider: result?.provider, verified: result?.verified, tokens: result?.tokens, latencyMs: result?.latencyMs, billing: result?.billing, costOg: Number.isFinite(result?.costOg) ? result!.costOg : null, output: result?.content });
       if (!acceptsInference(inference, result, a.mode === "analysis" ? "analysis" : "execution")) throw new Error("unverified_or_missing_inference");
       if (!result) throw new Error("unverified_or_missing_inference");
       const parsed = parseTurn(result.content, a);

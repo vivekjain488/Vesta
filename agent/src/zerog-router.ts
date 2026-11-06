@@ -20,8 +20,10 @@ export class ZeroGRouterBrain implements Brain {
   private readonly base: string;
   private busy = false;
   private blockedUntil = 0;
-  constructor(private readonly cfg: { apiKey: string; baseUrl: string; modelSmall: string; modelLarge: string; maxTokensPerHour: number; maxTokensPerDay: number; stateFile?: string; timeoutMs?: number }, private readonly send: typeof fetch = fetch) {
+  constructor(private readonly cfg: { apiKey: string; baseUrl: string; modelSmall: string; modelLarge: string; maxTokensPerHour: number; maxTokensPerDay: number; stateFile?: string; timeoutMs?: number; providerSort?: string; maxPromptUsdPerMillion?: string; maxCompletionUsdPerMillion?: string; disable0gmThinking?: boolean }, private readonly send: typeof fetch = fetch) {
     if (!cfg.apiKey) throw new Error("ZG_API_KEY is required for 0G Router");
+    if (cfg.providerSort && !["latency", "price"].includes(cfg.providerSort)) throw new Error("ZG_PROVIDER_SORT must be latency or price");
+    for (const value of [cfg.maxPromptUsdPerMillion, cfg.maxCompletionUsdPerMillion]) if (value && (!/^(?:\d+\.?\d*|\.\d+)$/.test(value) || !Number.isFinite(Number(value)))) throw new Error("0G price caps must be non-negative decimal USD per million tokens");
     const url = new URL(cfg.baseUrl);
     if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("0G Router requires an HTTPS base URL");
     this.base = cfg.baseUrl.replace(/\/$/, ""); this.cap = new SpendCap(cfg.maxTokensPerHour, cfg.maxTokensPerDay);
@@ -50,18 +52,18 @@ export class ZeroGRouterBrain implements Brain {
     if (input > policy.maxPromptTokens * 4) throw new Error("0G input exceeds this call's prompt budget");
     // UTF-8 bytes are a conservative token estimate; persist the full reservation, not unverified usage.
     if (!this.reserve(input + maxTokens)) return null;
-    this.busy = true; const clientId = randomUUID(); const model = policy.model === "large" ? this.cfg.modelLarge : this.cfg.modelSmall;
+    this.busy = true; const clientId = randomUUID(); const model = policy.model === "large" ? this.cfg.modelLarge : this.cfg.modelSmall; const started = performance.now();
     try {
       let response: Response;
       try {
-          response = await this.send(`${this.base}/chat/completions`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.apiKey}`, "X-Client-Request-Id": clientId, "X-0G-Provider-Trust-Mode": "verified", "X-0G-Provider-Sort": "price" }, body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2, stream: false, verify_tee: true }), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(this.cfg.timeoutMs ?? 60000)]) : AbortSignal.timeout(this.cfg.timeoutMs ?? 60000) });
+          response = await this.send(`${this.base}/chat/completions`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.cfg.apiKey}`, "X-Client-Request-Id": clientId, "X-0G-Provider-Trust-Mode": "verified", "X-0G-Provider-Sort": this.cfg.providerSort ?? "latency", ...(this.cfg.maxPromptUsdPerMillion ? { "X-0G-Provider-Max-Price-Usd-Prompt": this.cfg.maxPromptUsdPerMillion } : {}), ...(this.cfg.maxCompletionUsdPerMillion ? { "X-0G-Provider-Max-Price-Usd-Completion": this.cfg.maxCompletionUsdPerMillion } : {}) }, body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.2, stream: false, verify_tee: true, ...(this.cfg.disable0gmThinking && model.toLowerCase() === "0gm-1.0-35b-a3b" ? { chat_template_kwargs: { enable_thinking: false } } : {}) }), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(this.cfg.timeoutMs ?? 60000)]) : AbortSignal.timeout(this.cfg.timeoutMs ?? 60000) });
       } catch { throw new ZeroGServiceError(503, "unreachable", "The configured 0G Router could not be reached. Check its network/endpoint; no simulated response was substituted.", clientId); }
       const data: any = await response.json().catch(() => ({}));
       const requestId = response.headers.get("X-Request-ID") ?? data.x_0g_trace?.request_id ?? data.request_id ?? clientId;
       if (!response.ok) {
         if ([401, 402, 429].includes(response.status)) this.blockedUntil = Date.now() + 60000;
         const code = String(data.error?.code ?? "provider_error");
-        const message = response.status === 402 ? "0G compute balance is insufficient. Deposit compute credits on the same network as this API key." : response.status === 401 ? "0G rejected the API key. Check that the key and Router endpoint use the same network." : `0G Router request failed (${response.status}, ${code}).`;
+        const message = response.status === 402 ? "0G compute balance is insufficient. Deposit compute credits on the same network as this API key." : response.status === 401 ? "0G rejected the API key. Check that the key and Router endpoint use the same network." : code === "model_not_allowed" ? `The 0G API key is not allowed to use model ${model}. Update its model permissions in the 0G dashboard.` : code === "no_provider_for_trust_mode" ? `No verified 0G provider is currently available for ${model}. Select a model with a verified provider; unverified fallback is disabled.` : `0G Router request failed (${response.status}, ${code}).`;
         throw new ZeroGServiceError(response.status, code, message, requestId);
       }
       const content = data.choices?.[0]?.message?.content;
@@ -69,8 +71,8 @@ export class ZeroGRouterBrain implements Brain {
       const trace = data.x_0g_trace;
       const billed = trace?.billing;
       const costOg = billed?.currency === "0g" && /^\d+$/.test(String(billed.total_cost)) ? Number(BigInt(billed.total_cost)) / 1e18 : NaN;
-      const result: BrainResult = { content, chatId: requestId, model: data.model ?? model, provider: trace?.provider ?? response.headers.get("X-Provider") ?? "0g-router", verified: trace?.tee_verified === true ? true : trace?.tee_verified === false ? false : null, tee: null, tokens: Number(data.usage?.total_tokens ?? input + maxTokens), costOg, verificationSource: "0g-router", billing: billed ?? null };
-      if (this.cfg.stateFile) appendFileSync(`${this.cfg.stateFile}.requests.jsonl`, JSON.stringify({ at: Date.now(), clientId, requestId, model: result.model, provider: result.provider, verified: result.verified, billing: billed ?? null, usage: data.usage ?? null }) + "\n", { mode: 0o600 });
+      const result: BrainResult = { content, chatId: requestId, model: data.model ?? model, provider: trace?.provider ?? response.headers.get("X-Provider") ?? "0g-router", verified: trace?.tee_verified === true ? true : trace?.tee_verified === false ? false : null, tee: null, tokens: Number(data.usage?.total_tokens ?? input + maxTokens), costOg, verificationSource: "0g-router", billing: billed ?? null, latencyMs: Math.round(performance.now() - started) };
+      if (this.cfg.stateFile) appendFileSync(`${this.cfg.stateFile}.requests.jsonl`, JSON.stringify({ at: Date.now(), clientId, requestId, model: result.model, provider: result.provider, verified: result.verified, latencyMs: result.latencyMs, billing: billed ?? null, usage: data.usage ?? null }) + "\n", { mode: 0o600 });
       return result;
     } finally { this.busy = false; }
   }

@@ -11,10 +11,11 @@ try {
   const models: any = await r.json(); const model = process.env.ZG_MODEL_SMALL ?? "0gm-1.0-35b-a3b";
   report.catalogReachable = true; report.model = model;
   if (!models.data?.some((m: any) => m.id === model)) throw new Error("Configured model is absent from this network's catalog");
-  const brain = new ZeroGRouterBrain({ apiKey: process.env.ZG_API_KEY ?? "", baseUrl, modelSmall: model, modelLarge: process.env.ZG_MODEL_LARGE ?? model, maxTokensPerHour: 1000, maxTokensPerDay: 2000, stateFile: ".perpetua/0g-check-budget.json", timeoutMs: 30000 });
+  const brain = new ZeroGRouterBrain({ apiKey: process.env.ZG_API_KEY ?? "", baseUrl, modelSmall: model, modelLarge: process.env.ZG_MODEL_LARGE ?? model, maxTokensPerHour: 1000, maxTokensPerDay: 2000, stateFile: ".perpetua/0g-check-budget.json", timeoutMs: 30000, providerSort: process.env.ZG_PROVIDER_SORT, maxPromptUsdPerMillion: process.env.ZG_MAX_PROMPT_USD_PER_MILLION, maxCompletionUsdPerMillion: process.env.ZG_MAX_COMPLETION_USD_PER_MILLION, disable0gmThinking: process.env.ZG_0GM_DISABLE_THINKING === "true" });
   const result = await brain.think(tierFor(72), [{ role: "user", content: "Reply with the single word OK." }], 24);
   if (!result) throw new Error("Connection check's token budget is exhausted");
-  Object.assign(report, { success: true, response: result.content, requestId: result.chatId, verified: result.verified, verificationSource: result.verificationSource, billing: result.billing });
+  Object.assign(report, { success: result.verified === true, response: result.content, requestId: result.chatId, verified: result.verified, verificationSource: result.verificationSource, latencyMs: result.latencyMs, billing: result.billing });
+  if (result.verified !== true) { report.code = "unverified_response"; report.error = "Router did not report a verified result; the hosted harness will reject it."; process.exitCode = 1; }
 } catch (e) {
   Object.assign(report, { success: false, error: e instanceof ZeroGServiceError ? e.message : "0G endpoint/catalog is unavailable or its model configuration does not match. Check the network and try again.", ...(e instanceof ZeroGServiceError ? { status: e.status, code: e.code, requestId: e.requestId } : {}) });
   process.exitCode = 1;

@@ -6,6 +6,8 @@ export interface InferenceResult {
   content: string;
   verificationSource?: "0g-direct" | "0g-router" | "openrouter";
   billing?: Record<string, unknown> | null;
+  /** End-to-end provider request time, when measured. */
+  latencyMs?: number;
   chatId: string; model: string; provider: string;
   verified: boolean | null;
   tee: { text: string; signature: Hex; signer: Hex } | null;
