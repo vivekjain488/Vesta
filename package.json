@@ -36,7 +36,8 @@
     "registry:verify": "tsx scripts/verify-registry.ts",
     "registry:health": "tsx arkiv/src/rpc-health-service.ts",
     "registry:health-service": "tsx scripts/rpc-health-service-manager.ts",
-    "0g:test-api": "node scripts/test-0g-router.mjs"
+    "0g:test-api": "node scripts/test-0g-router.mjs",
+    "0g:balance": "tsx scripts/check-0g-router-balance.ts"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

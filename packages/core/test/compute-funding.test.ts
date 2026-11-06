@@ -16,15 +16,14 @@ const directories: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("compute allocation and mandatory funding policy", () => {
-  it.each([[10n, 2n, 8n], [25n, 5n, 20n], [100n, 5n, 95n], [1n, 0n, 1n]])("splits deposit %s with a 20 percent allocation capped at five dollars", (deposit, compute, trading) => {
+  it.each([[5n, 2n, 3n], [10n, 2n, 8n], [25n, 5n, 20n], [100n, 5n, 95n]])("splits deposit %s with a $2 minimum and $5 maximum compute allocation", (deposit, compute, trading) => {
     const actual = splitAgentDeposit(deposit * usd);
-    if (deposit === 1n) expect(actual.computeUsd).toBe(200_000n);
-    else expect(actual).toEqual({ depositUsd: deposit * usd, computeUsd: compute * usd, tradingUsd: trading * usd });
+    expect(actual).toEqual({ depositUsd: deposit * usd, computeUsd: compute * usd, tradingUsd: trading * usd });
     expect(actual.computeUsd + actual.tradingUsd).toBe(actual.depositUsd);
   });
-  it("uses integer rounding and rejects nonpositive deposits", () => {
-    expect(splitAgentDeposit(101n)).toEqual({ depositUsd: 101n, computeUsd: 20n, tradingUsd: 81n });
-    expect(() => splitAgentDeposit(0n)).toThrow();
+  it("uses integer rounding and rejects deposits below $5", () => {
+    expect(splitAgentDeposit(10_000_001n)).toEqual({ depositUsd: 10_000_001n, computeUsd: 2_000_000n, tradingUsd: 8_000_001n });
+    expect(() => splitAgentDeposit(4_999_999n)).toThrow("at least $5");
   });
   it("requires an executable bootstrap before the first trade", () => {
     expect(planComputeFunding(observation(), policy(), now).reason).toBe("quote_required");
@@ -32,8 +31,8 @@ describe("compute allocation and mandatory funding policy", () => {
     expect(planComputeFunding({ ...observation(), computeWei: 20n * og }, policy(), now).action).toBe("wait");
   });
   it("does not strand a small bootstrap below the ledger minimum", () => {
-    const o = { ...observation(), initialDepositUsd: usd, bootstrapCashUsd: usd / 5n };
-    expect(planComputeFunding(o, policy(), now, { ...quote(), inputUsd: usd / 5n, feeUsd: 0n, minimumComputeWei: og / 3n }).reason).toBe("bootstrap_cannot_meet_provider_minimum");
+    const o = { ...observation(), initialDepositUsd: 5n * usd, bootstrapCashUsd: 2n * usd };
+    expect(planComputeFunding(o, policy(), now, { ...quote(), minimumComputeWei: og / 3n }).reason).toBe("bootstrap_cannot_meet_provider_minimum");
   });
   it("funds at most twenty percent of net realized profit and does not reuse it", () => {
     expect(planComputeFunding(refill(), policy(), now, quote())).toMatchObject({ action: "fund", source: "realized_profit", maxAvailableUsd: 2n * usd, allowFundingDecision: true });

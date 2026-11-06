@@ -1,9 +1,10 @@
 # Compute funding workflow
 
-The agreed initial allocation is **20% of the first deposit, capped at 5 USDT/USD equivalent**. Compute capital and trading capital are separate. Later deposits do not restart the bootstrap calculation. A later refill uses up to 20% of cumulative net realized trading profit that has not already funded compute, and only while compute is below the selected model's threshold.
+The initial deposit must be **at least $5 equivalent**. The initial compute allocation is **20% of that deposit, with a $2 minimum and $5 maximum**. Compute capital and trading capital are separate. Later deposits do not restart the bootstrap calculation. A later refill uses up to 20% of cumulative net realized trading profit that has not already funded compute, and only while compute is below the selected model's threshold.
 
 | Initial deposit | Compute allocation | Trading allocation |
 | --- | --- | --- |
+| $5 | $2 | $3 |
 | $10 | $2 | $8 |
 | $25 | $5 | $20 |
 | $100 | $5 | $95 |
@@ -14,14 +15,14 @@ The agreed initial allocation is **20% of the first deposit, capped at 5 USDT/US
 
 Implemented: allocation math, per-model low-water/target thresholds, mandatory funding priority, quote/budget checks, durable per-agent reservations, recovery across restarts, an optional bounded model advisory call, a live spot-runtime entry gate, owner-only funding status, and an atomic treasury-to-ledger contract function with operation replay protection. These have unit and contract tests.
 
-**The running MetaMask deposit still calls the existing trading vault directly. It does not yet execute the new split. No verified live bootstrap swap/CCIP adapter is bundled or configured.** Do not present existing deposits as split or their compute as self-funded. Live spot workers now wait with `compute_funding_adapter_required` until a trusted adapter is installed; local simulated trading remains available. The separate paper futures harness does not submit real trades and does not execute this funding flow.
+**Live deposits in the app are disabled:** the existing vault deposit cannot segregate compute funds, and no verified live bootstrap swap/CCIP adapter is bundled or configured. Local simulated deposits remain available and go entirely to the test vault; they do not fund 0G. Hosted live execution is disabled until its per-run funding gate is integrated. Existing deployed vaults remain directly callable on-chain, so this UI restriction is not smart-contract enforcement. Live spot workers wait with `compute_funding_adapter_required` until a trusted adapter is installed.
 
 The API exposes `GET /v1/agents/:agent/compute-funding` after MetaMask login and ownership verification. The runtime also includes a `computeFunding` entry in its state. Journals are stored in `.perpetua/compute-funding-<agent-id>.json`. A receipt for a swap or CCIP send is not treated as verified inference credit.
 
 ## Deposit and activation
 
 1. The backend quotes the accepted input asset using a fresh executable route. For USDT, USDC, ETH or another supported asset, normalize the confirmed deposit to USD equivalent using token decimals and verified pricing. “Any currency” means an explicitly supported token/chain pair with liquidity; it is not permission to invoke arbitrary token contracts.
-2. Before moving money, show the deposit amount, `min(20% × deposit, $5)` compute allocation, remaining trading amount, minimum native 0G to receive, route costs and destination ledger owner. Bind these terms, expiry, chain IDs and an operation ID to the owner's signed deposit action.
+2. Before moving money, show the deposit amount, `min($5, max($2, 20% × deposit))` compute allocation, remaining trading amount, minimum native 0G to receive, route costs and destination ledger owner. Bind these terms, expiry, chain IDs and an operation ID to the owner's signed deposit action.
 3. A deposit coordinator must segregate the compute allocation **before** depositing the trading portion into `PerpetuaVault`. No model call is needed for this calculation. Only the trading portion becomes vault principal/shares. The current direct-to-vault deposit flow must be replaced before enabling this live.
 4. Quote all gas, swap and bridge costs within the allocation; retain distinct gas reserves on the source and destination. A gas sponsor may advance native gas, but its reimbursement must be included in the quoted cost and attributed to this agent. Never deposit the wallet's entire native balance into inference credit.
 5. Check the real ledger creation and provider activation minimums. The installed 0G SDK requires 3 native 0G to create a ledger, and provider sub-accounts have their own minimum allocation. Keep these checks dynamic. If a capped allocation cannot activate the selected model after fees, return `bootstrap_cannot_meet_provider_minimum`; do not spend more than the approved allocation or lock a partial unusable credit. An existing ledger can have different incremental requirements.
@@ -81,6 +82,8 @@ Owner sleep/withdrawal stops new funding actions and model calls. A transaction 
 The journal uses atomic local-file replacement and a process-local worker guard. Run one backend process per agent/state directory. Multi-host operation requires database transactions/leases and durable receipt indexing. Runtime funding records currently remain local; publishing them as per-agent Arkiv audit records requires funded agent writer identities. The market mirror's funded identity is a separate service.
 
 The Router inference API key is a different payment account from a direct SDK ledger. This workflow currently refuses Router mode: a Router integration needs its own verified account-read/payment adapter. Buying native 0G and depositing to the direct ledger does not fund the Router API key. The configured direct testnet wallet still needs actual bootstrap funds/provider validation; testnet tokens cannot pay mainnet inference.
+
+For operator diagnostics, `pnpm 0g:balance` reads the Router ledger with a management key scoped to `account:read` and checks the account address. It subtracts reported pending and unsettled charges, but excludes the shared payment-layer vault and any unreported liabilities; the result is not an admission guarantee or a per-agent balance. It is not yet connected to automatic funding. Router USD settlement and 0G settlement are different modes: a 0G payment-vault deposit does not fund a USD-mode account. See the [0G Router API specification](https://0gfoundation.github.io/0g-router/openapi.yaml) and [0G Pay API](https://pay.staging.0g.ai/docs).
 
 Verified references (6 November 2026): [0G broker/compute flow](https://build.0g.ai/compute), [funding and ledger minimum](https://build.0g.ai/funding), [current Galileo CCIP directory](https://docs.chain.link/ccip/directory/testnet/chain/0g-testnet-galileo-1). The old Galileo selector is inactive; never reuse a historical selector merely because it is in a local test fixture.
 

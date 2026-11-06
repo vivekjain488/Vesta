@@ -1,10 +1,12 @@
 /** Compute capital is separate from trading NAV. USD amounts use 6 decimals; 0G uses 18. */
 export const COMPUTE_BOOTSTRAP_BPS = 2_000n;
 export const COMPUTE_BOOTSTRAP_CAP_USD = 5_000_000n;
+export const COMPUTE_BOOTSTRAP_MIN_USD = 2_000_000n;
+export const MIN_INITIAL_DEPOSIT_USD = 5_000_000n;
 
 export function splitAgentDeposit(depositUsd: bigint) {
-  if (depositUsd <= 0n) throw new Error("Deposit must be positive");
-  const computeUsd = min(depositUsd * COMPUTE_BOOTSTRAP_BPS / 10_000n, COMPUTE_BOOTSTRAP_CAP_USD);
+  if (depositUsd < MIN_INITIAL_DEPOSIT_USD) throw new Error("Initial deposit must be at least $5 equivalent");
+  const computeUsd = min(max(depositUsd * COMPUTE_BOOTSTRAP_BPS / 10_000n, COMPUTE_BOOTSTRAP_MIN_USD), COMPUTE_BOOTSTRAP_CAP_USD);
   return { depositUsd, computeUsd, tradingUsd: depositUsd - computeUsd };
 }
 
@@ -106,7 +108,7 @@ export function planComputeFunding(o: ComputeFundingObservation, p: ComputeFundi
   if (o.observedAtMs > nowMs + 1_000 || nowMs - o.observedAtMs > p.maxObservationAgeMs) return stop("stale_funding_observation");
   if (o.fundingMode === "router") return stop("router_requires_separate_balance_and_payment_adapter");
   if (o.computeWei === null || o.computeWei < 0n) return stop("compute_balance_unknown");
-  if (o.initialDepositUsd <= 0n || o.bootstrapCashUsd < 0n || o.profitFundingUsedUsd < 0n || o.eligibleProfitCashUsd < 0n || o.fundedLast24hUsd < 0n || o.minimumActivationWei < 0n) return stop("invalid_funding_observation");
+  if (o.initialDepositUsd < MIN_INITIAL_DEPOSIT_USD || o.bootstrapCashUsd < 0n || o.profitFundingUsedUsd < 0n || o.eligibleProfitCashUsd < 0n || o.fundedLast24hUsd < 0n || o.minimumActivationWei < 0n) return stop("invalid_funding_observation");
   const model = p.models[o.model];
   if (o.bootstrapComplete && o.computeWei >= model.minimumWei) return { ...stop("compute_healthy"), action: "trade" };
   if (!o.activationRequirementsKnown) return stop("activation_requirements_unknown");

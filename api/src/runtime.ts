@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { configHash } from "@perpetua/core";
 import { runtimeHistory } from "@perpetua/arkiv";
 import { RuntimeStore } from "../../agent/src/runtime/store";
-import { loadRuntimePorts } from "../../agent/src/runtime/ports";
 import type { RuntimeAgent } from "../../agent/src/runtime/types";
 import { assertInferenceConfigured } from "../../agent/src/inference";
 import type { ConfigAction, AgentDefinitions } from "./agent-definitions";
@@ -39,18 +38,14 @@ export function runtimeRouter(platform: Platform, definitions: AgentDefinitions,
       if (d.status === "sleeping") throw new Error("Update the sleeping definition before activation");
       // Existing local workers must not trade the same allocation outside this coordinator.
       if (process.env.HOSTED_RUNTIME_ENABLED !== "true") throw new Error("Enable HOSTED_RUNTIME_ENABLED before activating hosted agents");
-      const backend = assertInferenceConfigured();
+      assertInferenceConfigured();
       if (!process.env.ARKIV_RUNTIME_WRITER_ADDRESS) throw new Error("Configure the runtime Arkiv writer before activation");
       if (!["analysis", "execute"].includes(payload.mode)) throw new Error("Invalid runtime mode");
       const agent: RuntimeAgent = { id: d.id, owner, name: d.name, revision: d.revision, configHash: d.configHash, config: d.config, instructions: d.instructions ?? "", portfolioId: payload.portfolioId, mode: payload.mode, status: "active" };
       const binding = store.portfolio(agent.portfolioId);
       if (!binding || binding.owner !== owner.toLowerCase()) throw new Error("Portfolio belongs to another wallet");
       if (payload.mode === "execute") {
-        if (backend === "openrouter") throw new Error("OpenRouter testing supports analysis mode only; it does not provide a 0G TEE proof");
-        if (process.env.HOSTED_RUNTIME_EXECUTION_ENABLED !== "true" || !process.env.HOSTED_RUNTIME_ADAPTER_MODULE) throw new Error("Live execution requires an explicitly enabled, trusted execution adapter");
-        const { executor } = await loadRuntimePorts();
-        if (!executor) throw new Error("Execution adapter is unavailable");
-        const admitted = await executor.authorizeActivation(agent, binding); if (!admitted.ok) throw new Error(admitted.reason ?? "Execution capability is unavailable for this portfolio/configuration");
+        throw new Error("Live execution is unavailable until compute funding is integrated into the hosted runtime");
       }
       res.json(store.activate(agent));
     } catch (e) { res.status(400).json({ error: (e as Error).message }); }

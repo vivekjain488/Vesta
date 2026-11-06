@@ -12,7 +12,10 @@ const backend = assertInferenceConfigured();
 if (process.env.HOSTED_RUNTIME_ENABLED !== "true") throw new Error("Set HOSTED_RUNTIME_ENABLED=true for both API and worker; legacy local workers must be disabled for shared allocations");
 const store = new RuntimeStore(resolve(state, "runtime.sqlite"));
 const ports = await loadRuntimePorts();
-if (process.env.HOSTED_RUNTIME_EXECUTION_ENABLED !== "true" || backend === "openrouter") delete ports.executor;
+// The hosted worker does not yet check per-agent funding before each run.
+// Refuse execution even for previously activated agents until that gate exists.
+delete ports.executor;
+if (store.agents().some((agent) => agent.status === "active" && agent.mode === "execute")) throw new Error("Pause active execution agents: hosted compute funding is not integrated yet");
 const key = process.env.ARKIV_RUNTIME_PRIVATE_KEY as `0x${string}` | undefined;
 if (!key) throw new Error("ARKIV_RUNTIME_PRIVATE_KEY is required; hosted decisions must publish to Arkiv");
 const audit = new RuntimeArkivPort(key);
