@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { RevealRoot } from "@/components/Reveal";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WalletProvider } from "@/components/Wallet";
+import { PrivyBridge } from "@/components/PrivyBridge";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
@@ -21,13 +22,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={cn(geist.variable, serif.variable, mono.variable)}>
       <body className="canvas-grid min-h-screen">
-        <WalletProvider>
+        <PrivyBridge><WalletProvider>
           <TooltipProvider delayDuration={150}>
             <RevealRoot>
               <AppShell>{children}</AppShell>
             </RevealRoot>
           </TooltipProvider>
-        </WalletProvider>
+        </WalletProvider></PrivyBridge>
       </body>
     </html>
   );

@@ -3,10 +3,12 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { toHex } from "viem";
 import { parseSiweMessage } from "viem/siwe";
 import { apiFetch } from "@/lib/api";
+import { usePrivyGate } from "@/components/PrivyBridge";
+import { sendOwnerTransaction } from "@/lib/owner-transaction";
 
 interface WalletCtx {
   address: string | null; ready: boolean; kind: "injected";
-  connect(): Promise<string | null>; logout(): Promise<void>;
+  connect(expectedAddresses?: string[]): Promise<string | null>; logout(): Promise<void>;
   signMessage(message: string): Promise<string>; signTypedDataJson(json: string): Promise<string>;
   sendTransaction(to: string, data: string, chainId: number): Promise<string>;
 }
@@ -15,6 +17,7 @@ export const useWallet = () => { const value = useContext(Ctx); if (!value) thro
 function provider() { const eth = (globalThis as any).ethereum; return eth?.providers?.find((p: any) => p.isMetaMask) ?? (eth?.isMetaMask ? eth : undefined); }
 async function response(res: Response) { const value = await res.json(); if (!res.ok) throw new Error(value.error ?? "Sign-in failed"); return value; }
 export function WalletProvider({ children }: { children: ReactNode }) {
+  const privy = usePrivyGate();
   const [address, setAddress] = useState<string | null>(null); const [ready, setReady] = useState(false);
   const logout = useCallback(async () => { setAddress(null); await apiFetch("/auth/logout", { method: "POST" }); }, []);
   useEffect(() => {
@@ -24,9 +27,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     eth?.on?.("accountsChanged", changed); eth?.on?.("disconnect", changed);
     return () => { active = false; eth?.removeListener?.("accountsChanged", changed); eth?.removeListener?.("disconnect", changed); };
   }, [logout]);
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (expectedAddresses?: string[]) => {
     const eth = provider(); if (!eth) throw new Error("Install or unlock MetaMask to sign in.");
     const [account] = await eth.request({ method: "eth_requestAccounts" }); const chainId = Number.parseInt(await eth.request({ method: "eth_chainId" }), 16);
+    if (!account || (expectedAddresses && !expectedAddresses.includes(account.toLowerCase()))) throw new Error("Connect the same MetaMask account in Privy and Perpetua.");
     const challenge = await response(await apiFetch("/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account, chainId }) }));
     const parsed = parseSiweMessage(challenge.message);
     if (parsed.domain !== location.host || parsed.uri !== location.origin || parsed.address?.toLowerCase() !== account.toLowerCase() || parsed.chainId !== chainId || parsed.nonce !== challenge.nonce) throw new Error("Sign-in request does not match this site or wallet");
@@ -39,14 +43,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     signMessage: async (message) => { if (!address) throw new Error("Sign in first"); return provider().request({ method: "personal_sign", params: [toHex(message), address] }); },
     signTypedDataJson: async (json) => { if (!address) throw new Error("Sign in first"); return provider().request({ method: "eth_signTypedData_v4", params: [address, json] }); },
     sendTransaction: async (to, data, chainId) => {
-      const eth = provider(); if (!address || !eth) throw new Error("Sign in with MetaMask first");
-      if (Number.parseInt(await eth.request({ method: "eth_chainId" }), 16) !== chainId) {
-        try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: toHex(chainId) }] }); }
-        catch (e: any) { if (e.code !== 4902 || chainId !== 31337) throw e; await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: toHex(chainId), chainName: "Perpetua Local", nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["http://127.0.0.1:8545"] }] }); }
-      }
-      if (Number.parseInt(await eth.request({ method: "eth_chainId" }), 16) !== chainId) throw new Error("Select the agent's network in MetaMask before continuing");
-      const accounts: string[] = await eth.request({ method: "eth_accounts" }); if (!accounts.some((a) => a.toLowerCase() === address.toLowerCase())) throw new Error("Reconnect the owning wallet");
-      return eth.request({ method: "eth_sendTransaction", params: [{ from: address, to, data }] });
+      if (!address) throw new Error("Sign in with MetaMask first");
+      return sendOwnerTransaction(() => privy.ownerProvider(address), address, to, data, chainId);
     },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

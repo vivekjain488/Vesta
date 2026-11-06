@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Funding } from "@/components/Funding";
+import { PrivyAgentConnection } from "@/components/PrivyAgentConnection";
 import { Investments } from "@/components/Investments";
 import { MarketChart } from "@/components/MarketChart";
 import { RiskGateCard } from "@/components/RiskGateCard";
@@ -19,7 +20,7 @@ const SECTIONS = [["add-capital", "Add capital"], ["investments", "Investments"]
 
 function DraftSetup({ id, name }: { id: string; name: string }) {
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
-  return <div className="space-y-4 pt-8"><Button asChild variant="ghost"><Link href="/"><ArrowLeft /> Dashboard</Link></Button><h1 className="font-display text-5xl">{name}</h1><p className="max-w-xl text-muted-foreground">Your strategy is saved. Finish setup to create its local test agent. Live deposits and trading are not enabled.</p><Button disabled={busy} onClick={async () => { setBusy(true); setMessage(""); try { const response = await apiFetch(`/v1/agent-definitions/${id}/deploy`, { method: "POST" }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Setup failed"); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Test agent created. Loading your agent…"); } catch (error) { setMessage((error as Error).message); } finally { setBusy(false); } }}>{busy ? "Setting up…" : "Finish test setup"}</Button>{message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}</div>;
+  return <div className="space-y-4 pt-8"><Button asChild variant="ghost"><Link href="/"><ArrowLeft /> Dashboard</Link></Button><h1 className="font-display text-5xl">{name}</h1><p className="max-w-xl text-muted-foreground">Your strategy is saved. Finish setup to create its local test agent. Live deposits and trading are not enabled.</p><Button disabled={busy} onClick={async () => { setBusy(true); setMessage(""); try { const response = await apiFetch(`/v1/agent-definitions/${id}/deploy`, { method: "POST" }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Setup failed"); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Test agent created. Loading your agent…"); } catch (error) { setMessage((error as Error).message); } finally { setBusy(false); } }}>{busy ? "Setting up…" : "Finish test setup"}</Button>{message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}<PrivyAgentConnection /></div>;
 }
 
 export default function AgentPage({ params }: { params: Promise<{ name: string }> }) {
@@ -71,7 +72,7 @@ export default function AgentPage({ params }: { params: Promise<{ name: string }
           <MarketChart symbols={agentSymbols(a)} levels={openLevels(a)} agentName={a.name} />
           <RiskGateCard agent={a} />
         </div>
-        <Funding agent={a.id} name={a.name} value={a.chain?.V ?? 0} profit={a.profit ?? 0} className="lg:sticky lg:top-6 lg:self-start" />
+        <div className="space-y-3 lg:sticky lg:top-6 lg:self-start"><Funding agent={a.id} name={a.name} value={a.chain?.V ?? 0} profit={a.profit ?? 0} /><PrivyAgentConnection /></div>
       </div>
       <Investments agent={a.id} />
       <TransactionHistory agent={a.id} />

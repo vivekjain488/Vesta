@@ -9,6 +9,7 @@ import { Micro } from "@/components/ui-perpetua";
 import { Landing } from "@/components/landing/Landing";
 import { cn } from "@/lib/utils";
 import { useWallet } from "./Wallet";
+import { usePrivyGate } from "./PrivyBridge";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutGrid },
@@ -23,11 +24,12 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const wallet = useWallet();
+  const privy = usePrivyGate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pathname = usePathname();
 
-  if (!wallet.ready)
+  if (!wallet.ready || !privy.ready)
     return (
       <main className="flex min-h-screen items-center justify-center text-muted-foreground" aria-busy="true">
         <Loader2 className="mr-2 size-4 animate-spin" /> Loading…
@@ -35,23 +37,27 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
 
   // The chain registry is public infrastructure. Signed-out visitors can read it; every other route, and /welcome, stays on the landing page.
-  if (!wallet.address && pathname.startsWith("/registry"))
+  const signedIn = !!wallet.address && privy.authenticated && privy.addresses.includes(wallet.address.toLowerCase());
+  if (!signedIn && pathname.startsWith("/registry"))
     return <main className="mx-auto w-full max-w-[1440px] px-4 pt-4 pb-12 sm:px-6 lg:px-8">{children}</main>;
 
   // Signed-out visitors (any route) and /welcome (anyone) see the full-bleed landing page.
-  if (!wallet.address || pathname === "/welcome")
+  if (!signedIn || pathname === "/welcome")
     return (
       <Landing
-        signedIn={!!wallet.address}
+        signedIn={signedIn}
         busy={busy}
         error={error}
         onSignIn={async () => {
           setBusy(true);
           setError("");
           try {
-            await wallet.connect();
+            const addresses = await privy.connect();
+            if (!addresses.length) throw new Error("Sign in to Privy with your MetaMask account.");
+            await wallet.connect(addresses);
             router.replace("/");
           } catch (e) {
+            if ((e as Error).message.includes("same MetaMask") || (e as Error).message.includes("with your MetaMask account")) await privy.logout().catch(() => {});
             setError((e as Error).message);
           } finally {
             setBusy(false);
@@ -62,10 +68,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <MobileTopBar address={wallet.address} />
+      <MobileTopBar address={wallet.address!} />
       <main className="mx-auto w-full max-w-[1440px] px-4 pt-4 pb-28 sm:px-6 lg:pt-6 lg:pr-[112px] lg:pb-12">{children}</main>
-      <Rail address={wallet.address} onSignOut={() => void wallet.logout()} />
-      <MobileNav onSignOut={() => void wallet.logout()} />
+      <Rail address={wallet.address!} onSignOut={() => void Promise.allSettled([wallet.logout(), privy.logout()])} />
+      <MobileNav onSignOut={() => void Promise.allSettled([wallet.logout(), privy.logout()])} />
     </>
   );
 }
