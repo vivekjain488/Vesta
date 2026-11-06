@@ -50,6 +50,7 @@ export default function Studio() {
   const [prompt, setPrompt] = useState(""); const [notes, setNotes] = useState<string[]>([]); const [unresolved, setUnresolved] = useState(false);
   const [compiledFor, setCompiledFor] = useState<{ prompt: string; profile: RiskProfile } | null>(null);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  const [step, setStep] = useState(0); const [savedId, setSavedId] = useState<string | null>(null);
   const body = async (r: Response) => { const b = await r.json(); if (!r.ok) throw new Error(b.error); return b; };
   function edit(change: (c: StrategyConfig) => void) { setConfig((previous) => { const next = structuredClone(previous); change(next); return next; }); }
   async function signed(action: "create" | "compile", payload: unknown, path: string) {
@@ -66,10 +67,12 @@ export default function Studio() {
 
   return (
     <div className="space-y-6 pt-4 lg:pt-6">
-      <PageHeader eyebrow="New agent" title="Choose how your agent invests" description="Set a strategy and operating limits. After creating your agent, add capital from your wallet." />
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-3">
-          <Card>
+      <PageHeader eyebrow="New agent" title="Create your agent" description="Choose a strategy, set your preferences, and review before signing with MetaMask." />
+      <ol aria-label="Agent creation progress" className="grid grid-cols-3 gap-2">{["Strategy", "Preferences", "Review"].map((label, i) => <li key={label} aria-current={step === i ? "step" : undefined} className={cn("rounded-2xl px-4 py-3 text-sm", step === i ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}><span className="mr-2 font-semibold">0{i + 1}</span>{label}</li>)}</ol>
+      <p className="text-sm text-muted-foreground">Agents currently use the local test network. Live deposits and autonomous trading are not enabled.</p>
+      <div className={cn("grid gap-3", step === 2 ? "max-w-2xl" : "max-w-4xl")}>
+        <fieldset disabled={!!savedId} className={cn("flex min-w-0 flex-col gap-3 border-0 p-0", step === 2 && "hidden")}>
+          <Card className={step !== 0 ? "hidden" : ""}>
             <CardHeader>
               <CardTitle>Strategy</CardTitle>
               <CardDescription>Start from a template. Templates have no established profitability.</CardDescription>
@@ -107,7 +110,7 @@ export default function Studio() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={step !== 1 ? "hidden" : ""}>
             <CardHeader><CardTitle>Personality and risk</CardTitle><CardDescription>Choose starting limits and describe how your agent should weigh opportunities. You can review and edit the limits before signing.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <ToggleGroup type="single" value={profile} onValueChange={(v) => { if (!v) return; const next = v as RiskProfile; setProfile(next); setConfig((c) => applyRiskProfile(c, next)); }} className="grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label="Risk personality">
@@ -117,7 +120,7 @@ export default function Studio() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={step !== 1 ? "hidden" : ""}>
             <CardHeader>
               <CardTitle>Or describe your strategy</CardTitle>
               <CardDescription>Qwen3.7 Flash on OpenRouter drafts a configuration from your strategy and selected risk personality. Review the settings before creating the agent.</CardDescription>
@@ -141,14 +144,15 @@ export default function Studio() {
               )}
             </CardContent>
           </Card>
-        </div>
+        </fieldset>
 
-        <Card className="lg:sticky lg:top-6 lg:self-start">
+        <Card className={step !== 2 ? "hidden" : ""}>
           <CardHeader>
-            <CardTitle>Your limits</CardTitle>
-            <CardDescription>{config.symbols.join(", ") || "No assets"} · {config.market === "spot" ? "Spot" : "Futures research"}</CardDescription>
+            <CardTitle>Review your agent</CardTitle>
+            <CardDescription>{name.trim() || "Unnamed agent"} · {STRATEGY_TEMPLATES.find((t) => t.id === config.template)?.label} · {RISK_PROFILES[profile].label} risk</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2.5">
+            <fieldset disabled={!!savedId} className="space-y-2.5 border-0 p-0">
             <div className="space-y-1.5 pb-1">
               <Label htmlFor="assets">Assets</Label>
               <Input id="assets" value={config.symbols.join(", ")} onChange={(e) => edit((c) => { c.symbols = e.target.value.toUpperCase().split(",").map((s) => s.trim()); })} />
@@ -166,6 +170,7 @@ export default function Studio() {
                 <Textarea value={JSON.stringify(config, null, 2)} onChange={(e) => { try { setConfig(JSON.parse(e.target.value)); } catch { setMessage("Invalid configuration JSON"); } }} rows={18} spellCheck={false} className="mt-2 font-mono text-xs" />
               </CollapsibleContent>
             </Collapsible>
+            </fieldset>
             {config.market === "perpetual" && (
               <Alert className="rounded-2xl border-0 bg-trade-soft text-trade-deep">
                 <TriangleAlert />
@@ -177,16 +182,18 @@ export default function Studio() {
                 const validated = validateStrategyConfig(config);
                 const instructions = [prompt.trim() && `Owner strategy: ${prompt.trim()}`, personality.trim() && `Additional owner preferences: ${personality.trim()}`, `Risk personality (secondary to explicit owner strategy): ${RISK_PROFILES[profile].instructions}`].filter(Boolean).join("\n\n");
                 if (instructions.length > 4000) throw new Error("Strategy description and personality together must be at most 4000 characters");
-                setMessage("Review and sign your strategy in MetaMask…");
-                const definition = await signed("create", { name, instructions, config: validated, status: "draft" }, "/v1/agent-definitions");
-                setMessage("Creating your agent contracts…"); await body(await apiFetch(`/v1/agent-definitions/${definition.id}/deploy`, { method: "POST" })); router.push(`/agent/${definition.id}`);
-              })}>{busy ? <><Loader2 className="animate-spin" /> Working…</> : "Create agent"}</Button>
+                let id = savedId;
+                if (!id) { setMessage("Review and sign your strategy in MetaMask…"); const definition = await signed("create", { name, instructions, config: validated, status: "draft" }, "/v1/agent-definitions"); id = definition.id; setSavedId(id); }
+                setMessage("Creating your agent contracts…"); await body(await apiFetch(`/v1/agent-definitions/${id}/deploy`, { method: "POST" })); router.push(`/agent/${id}`);
+              })}>{busy ? <><Loader2 className="animate-spin" /> Working…</> : savedId ? "Retry setup" : "Create test agent"}</Button>
+              {savedId && <p className="mt-2 text-sm text-muted-foreground">Your strategy is saved. Retry setup to deploy this same agent without creating another draft.</p>}
             </div>
             {message && <StatusNote key={message} className="pop-in">{message}</StatusNote>}
             <ActionSheet flow={flow} tag={`${name.trim() || "New agent"} · ${config.symbols.join(", ")}`} doneTitle="Agent created" errorTitle="Agent wasn't created" figure={name.trim() || undefined} />
           </CardContent>
         </Card>
       </div>
+      <div className="flex max-w-4xl justify-between gap-3"><Button variant="outline" disabled={busy || step === 0 || !!savedId} onClick={() => setStep((s) => s - 1)}>Back</Button>{step < 2 && <Button disabled={busy || (step === 0 && !name.trim())} onClick={() => setStep((s) => s + 1)}>Continue</Button>}</div>
     </div>
   );
 }

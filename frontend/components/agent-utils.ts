@@ -5,7 +5,7 @@ import type { TradeLevels } from "./MarketChart";
 export type DashboardAgent = AgentView & { deposited?: number; withdrawn?: number };
 
 export const isFunded = (a: AgentView) => !!a.chain && a.status !== "awaiting_funding" && a.status !== "draft";
-export const agentHref = (a: AgentView) => (a.chain ? `/agent/${a.id}` : "/studio");
+export const agentHref = (a: AgentView) => `/agent/${a.id}`;
 
 export const openTrades = (a: AgentView) => ((a.runtime?.trades ?? []) as any[]).filter((t) => t.status === "open");
 export const hasOpenTrade = (a: AgentView) => openTrades(a).length > 0;

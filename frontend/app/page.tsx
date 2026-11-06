@@ -78,7 +78,7 @@ export default function Dashboard() {
         <Card className="items-start px-8 py-10">
           <Micro>Get started</Micro>
           <h3 className="font-display text-4xl leading-none">Start with your first agent</h3>
-          <p className="max-w-xl text-muted-foreground">Choose a strategy, set your limits, and allocate capital. Your agent runs without keeping this page open.</p>
+          <p className="max-w-xl text-muted-foreground">Choose a strategy and create an agent on the local test network. Live deposits and autonomous trading are not enabled yet.</p>
           <Button asChild size="lg" className="mt-2">
             <Link href="/studio">Create an agent <ArrowRight /></Link>
           </Button>

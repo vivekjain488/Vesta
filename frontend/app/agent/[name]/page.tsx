@@ -1,5 +1,5 @@
 "use client";
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,14 @@ import { agentSymbols, openLevels } from "@/components/agent-utils";
 import { AgentAvatar, EmptyState, StatusBadge, TierBadge } from "@/components/ui-perpetua";
 import { useAgents } from "@/components/useAgents";
 import { scrollToId, useHashScroll } from "@/components/motion";
+import { apiFetch } from "@/lib/api";
 
 const SECTIONS = [["add-capital", "Add capital"], ["investments", "Investments"], ["history", "History"]] as const;
+
+function DraftSetup({ id, name }: { id: string; name: string }) {
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  return <div className="space-y-4 pt-8"><Button asChild variant="ghost"><Link href="/"><ArrowLeft /> Dashboard</Link></Button><h1 className="font-display text-5xl">{name}</h1><p className="max-w-xl text-muted-foreground">Your strategy is saved. Finish setup to create its local test agent. Live deposits and trading are not enabled.</p><Button disabled={busy} onClick={async () => { setBusy(true); setMessage(""); try { const response = await apiFetch(`/v1/agent-definitions/${id}/deploy`, { method: "POST" }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Setup failed"); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Test agent created. Loading your agent…"); } catch (error) { setMessage((error as Error).message); } finally { setBusy(false); } }}>{busy ? "Setting up…" : "Finish test setup"}</Button>{message && <p role="status" className="text-sm text-muted-foreground">{message}</p>}</div>;
+}
 
 export default function AgentPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params); const { agents, online } = useAgents(5000); const a = agents.find((a) => a.id === name);
@@ -29,6 +35,8 @@ export default function AgentPage({ params }: { params: Promise<{ name: string }
     ) : (
       <EmptyState className="mt-10" title="Agent not found in your account." action={<Button asChild variant="outline"><Link href="/">Back to dashboard</Link></Button>} />
     );
+
+  if (!a.chain) return <DraftSetup id={a.id} name={a.name} />;
 
   return (
     <div className="space-y-3">
