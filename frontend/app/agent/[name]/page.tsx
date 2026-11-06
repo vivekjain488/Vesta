@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Funding } from "@/components/Funding";
 import { DataMarketCard } from "@/components/DataMarketCard";
+import { HireCard } from "@/components/HireCard";
 import { PrivyAgentConnection } from "@/components/PrivyAgentConnection";
 import { Investments } from "@/components/Investments";
 import { MarketChart } from "@/components/MarketChart";
@@ -73,7 +74,7 @@ export default function AgentPage({ params }: { params: Promise<{ name: string }
           <MarketChart symbols={agentSymbols(a)} levels={openLevels(a)} agentName={a.name} />
           <RiskGateCard agent={a} />
         </div>
-        <div className="space-y-3 lg:sticky lg:top-6 lg:self-start"><Funding agent={a.id} name={a.name} value={a.chain?.V ?? 0} profit={a.profit ?? 0} /><DataMarketCard agent={a.id} /><PrivyAgentConnection /></div>
+        <div className="space-y-3 lg:sticky lg:top-6 lg:self-start"><Funding agent={a.id} name={a.name} value={a.chain?.V ?? 0} profit={a.profit ?? 0} /><HireCard agent={a.id} /><DataMarketCard agent={a.id} /><PrivyAgentConnection /></div>
       </div>
       <Investments agent={a.id} />
       <TransactionHistory agent={a.id} />

@@ -10,7 +10,7 @@ interface WalletCtx {
   address: string | null; ready: boolean; kind: "injected";
   connect(expectedAddresses?: string[]): Promise<string | null>; logout(): Promise<void>;
   signMessage(message: string): Promise<string>; signTypedDataJson(json: string): Promise<string>;
-  sendTransaction(to: string, data: string, chainId: number): Promise<string>;
+  sendTransaction(to: string, data: string, chainId: number, value?: bigint): Promise<string>;
 }
 const Ctx = createContext<WalletCtx | null>(null);
 export const useWallet = () => { const value = useContext(Ctx); if (!value) throw new Error("WalletProvider missing"); return value; };
@@ -42,9 +42,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     address, ready, kind: "injected", connect, logout,
     signMessage: async (message) => { if (!address) throw new Error("Sign in first"); return provider().request({ method: "personal_sign", params: [toHex(message), address] }); },
     signTypedDataJson: async (json) => { if (!address) throw new Error("Sign in first"); return provider().request({ method: "eth_signTypedData_v4", params: [address, json] }); },
-    sendTransaction: async (to, data, chainId) => {
+    sendTransaction: async (to, data, chainId, value) => {
       if (!address) throw new Error("Sign in with MetaMask first");
-      return sendOwnerTransaction(() => privy.ownerProvider(address), address, to, data, chainId);
+      return sendOwnerTransaction(() => privy.ownerProvider(address), address, to, data, chainId, value);
     },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

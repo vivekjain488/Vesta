@@ -11,6 +11,8 @@ const contracts = [
   "RiskGate",
   "AgentWallet",
   "HarvestRouter",
+  "StrategyHire",
+  "HireReceiver",
   "ComputeTreasury",
   "AgentRegistry",
   "MockERC20",

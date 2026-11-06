@@ -31,6 +31,7 @@ import { pendingWithdrawals, finishWithdrawals, startLocalRuntime } from "./loca
 import { registryRouter } from "./registry";
 import { dataMarketRouter, dataQueryPrice } from "./data-market";
 import { IncomeWallets, privyConfigured } from "./income-wallets";
+import { HireService, hirePriceUsd, hireRouter } from "./hiring";
 import { runtimeRouter } from "./runtime";
 import { latestMarket, marketCandles, marketHistory, safeMarketError, ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
 import { createPublicClient, erc20Abi, hexToString, http, keccak256, toBytes, parseUnits, formatUnits, type Address, type Hex } from "viem";
@@ -102,7 +103,7 @@ app.get("/v1/dashboard", async (req, res) => {
   } catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
 app.get("/v1/leaderboard", async (_, res) => {
-  try { const rows = await Promise.all(platform.agents().filter((a) => a.platformAgent).map((a) => platform.summary(a))); res.json(rows.sort((a, b) => b.profit - a.profit).map((a) => ({ name: a.name, profit: a.profit }))); }
+  try { const rows = await Promise.all(platform.agents().filter((a) => a.platformAgent).map((a) => platform.summary(a))); res.json(rows.sort((a, b) => b.profit - a.profit).map((a) => ({ id: a.id, name: a.name, profit: a.profit, hirePriceUsd: hirePriceUsd(a.profit) }))); }
   catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
 app.get("/v1/paper-leaderboard", (_, res) => {
@@ -250,8 +251,11 @@ if ((process.env.DATA_PAYMENT_MODE ?? ((await platform.pub.getChainId().catch(()
   console.log(`[data] x402 pay-per-query on ${NETWORK}, paid to each agent's Privy income wallet`);
 } else console.log("[data] local settlement: buyers pay USDC on the local chain to the agent's Privy income wallet");
 app.use("/data", dataMarketRouter(platform, incomeWallets));
-if (privyConfigured()) { void incomeWallets.ensureAll().then(() => configureComputeHarvestAll(platform)).catch((e) => console.warn("[income]", e.message)); incomeWallets.start(); }
-else console.warn("[income] PRIVY_APP_ID/SECRET not set: no agent income wallets; data sales cannot be paid out");
+// Strategy hiring: pay any token -> swapped to 0G -> Chainlink CCIP -> the agent's Privy wallet on 0G Chain.
+const hireService = new HireService(platform, incomeWallets);
+if (privyConfigured()) { void incomeWallets.ensureAll().then(() => configureComputeHarvestAll(platform)).then(() => hireService.start()).catch((e) => console.warn("[income]", e.message)); incomeWallets.start(); }
+else { console.warn("[income] PRIVY_APP_ID/SECRET not set: no agent income wallets; data sales cannot be paid out"); hireService.start(); }
+app.use("/v1/hire", hireRouter(platform, hireService, incomeWallets, sessionOwner));
 
 const revenueFile = `${STATE}/x402-revenue.json`;
 function recordRevenue(engine: "signals" | "risk_checks", usd: number, req: express.Request) {
@@ -454,6 +458,11 @@ app.get("/v1/outbox", (_, res) => {
 app.post("/v1/copy/quote", async (req, res) => {
   const { agent = "Atlas", follower, capUsd, targetAsset, contraAsset } = req.body ?? {};
   if (!follower || !capUsd) return void res.status(400).json({ error: "follower and capUsd required" });
+  // Copy trading a platform agent requires hiring it (paid in any token, delivered to the agent as 0G via CCIP).
+  if (hireService.state && hireService.agentOf(String(agent))?.platformAgent) {
+    const until = await hireService.hiredUntil(String(agent), follower as Address);
+    if (until * 1000 <= Date.now()) return void res.status(402).json({ error: "Hire this agent to copy its trades", hire: `/v1/hire/quote?agent=${encodeURIComponent(String(agent))}` });
+  }
   const cap = Math.min(Number(capUsd), Number(process.env.COPY_MAX_USD ?? 100)); // follower safety cap
   const st = readJson(`${STATE}/agent-${agent}.json`, { trades: {} });
   const t = (Object.values(st.trades) as any[]).filter((x) => x.status === "open").sort((a, b) => b.openedAt - a.openedAt)[0];

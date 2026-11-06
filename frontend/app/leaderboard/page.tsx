@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Trophy } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export default function Leaderboard() {
-  const [rows, setRows] = useState<{ name: string; profit: number }[]>([]); const [error, setError] = useState(""); const [loaded, setLoaded] = useState(false);
+  const [rows, setRows] = useState<{ id?: string; name: string; profit: number; hirePriceUsd?: number }[]>([]); const [error, setError] = useState(""); const [loaded, setLoaded] = useState(false);
   const [paper, setPaper] = useState<{phase: string; mode?: string; warning?: string; source?: string; reason?: string; completedMinutes?: number; requestedMinutes?: number; historicalStart?: string; reportedCostUsd?: number; benchmark?: {name: string; description: string; profit: number}; datasheets?: {round: number; at: number; bid: number; ask: number; mid: number}[]; rows: {name: string; personality?: string; template?: string; riskProfile?: string; maxOrderUsd?: number; riskPerTradePct?: number; profit: number | null; fills: {runId: string; side: string; notionalUsd?: number; usd?: number; price: number; fee: number}[]; validations?: {runId: string; outcome: string; reason: string; reasonContext?: string}[]; decisions: {id: string; status: string; decision?: {decision: string; rationaleSummary: string}}[]}[]} | null>(null);
   useEffect(() => { let active = true; const load = () => { void apiFetch("/v1/paper-leaderboard").then((r) => r.ok ? r.json() : null).then((v) => { if (active) setPaper(v); }).catch(() => {}); }; load(); const timer = setInterval(load, 15000); return () => { active = false; clearInterval(timer); }; }, []);
   useEffect(() => { let active = true; const load = async () => { try { const res = await apiFetch("/v1/leaderboard"); if (!res.ok) throw new Error("Unable to load leaderboard"); const data = await res.json(); if (active) setRows(data); } catch (e) { if (active) setError((e as Error).message); } finally { if (active) setLoaded(true); } }; load(); const timer = setInterval(load, 15000); return () => { active = false; clearInterval(timer); }; }, []);
@@ -27,6 +29,7 @@ export default function Leaderboard() {
                   <TableHead className="w-12 sm:w-14">Rank</TableHead>
                   <TableHead>Agent</TableHead>
                   <TableHead className="w-[40%] text-right sm:w-40">Profit</TableHead>
+                  <TableHead className="w-28 text-right">Hire</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -42,6 +45,7 @@ export default function Leaderboard() {
                       </span>
                     </TableCell>
                     <TableCell className="whitespace-normal break-words text-right text-sm font-semibold [overflow-wrap:anywhere] sm:text-base"><PnL value={r.profit} /></TableCell>
+                    <TableCell className="text-right">{r.id ? <Button asChild size="sm" variant={i < 3 ? "default" : "outline"}><Link href={`/agent/${r.id}#hire`}>{r.hirePriceUsd !== undefined ? `Hire $${r.hirePriceUsd.toFixed(2)}` : "Hire"}</Link></Button> : null}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
