@@ -64,14 +64,22 @@ export class ZeroGBrain implements Brain {
     const provider = new ethers.JsonRpcProvider(this.cfg.rpc);
     const wallet = new ethers.Wallet(this.cfg.privateKey, provider);
     this.broker = await sdk.createZGComputeNetworkBroker(wallet);
+    const providers = [...new Set([this.cfg.providerLarge, this.cfg.providerSmall].filter(Boolean))];
+    const services = await this.broker.inference.listService();
+    for (const p of providers) {
+      if (!services.some((service: any) => service.provider.toLowerCase() === p.toLowerCase() && service.teeSignerAcknowledged)) throw new Error(`0G provider ${p} has no acknowledged TEE signer`);
+    }
     try {
       await this.broker.ledger.getLedger();
-    } catch {
-      // Ledger minimum is 3 0G (LedgerProcessor.MIN_LEDGER_BALANCE_OG). Seed funds are disclosed in README.
+    } catch (error) {
+      // A transient RPC failure is not permission to create/fund another account.
+      if (!/Account does not exist/i.test((error as Error).message)) throw error;
       await this.broker.ledger.addLedger(this.cfg.minLedgerOg);
     }
-    for (const p of [this.cfg.providerLarge, this.cfg.providerSmall].filter(Boolean)) {
-      if (!(await this.broker.inference.acknowledged(p))) await this.broker.inference.acknowledgeProviderSigner(p);
+    // SDK signer checks may create/fund provider sub-accounts. The ledger must exist first.
+    for (const p of providers) {
+      const status = await this.broker.inference.checkProviderSignerStatus(p);
+      if (!status.isAcknowledged) throw new Error(`0G provider ${p} signer is not acknowledged`);
     }
     return this;
   }
@@ -124,6 +132,7 @@ export class ZeroGBrain implements Brain {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ messages, model, max_tokens: maxTokens, temperature: 0.2 }),
+      signal: AbortSignal.timeout(60000),
     });
     if (!res.ok) throw new Error(`0G provider ${provider} -> ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data: any = await res.json();
