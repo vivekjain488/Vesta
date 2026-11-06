@@ -8,6 +8,7 @@
 import { SpendCap, type TierPolicy } from "@perpetua/core";
 import { keccak256, toBytes, toHex, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { projectRpc } from "@perpetua/arkiv";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -53,6 +54,8 @@ export class ZeroGBrain implements Brain {
       minLedgerOg: number;
       maxTokensPerHour: number;
       maxTokensPerDay: number;
+      /** Hosted workers reserve bootstrap capital before any on-chain ledger/provider funding. */
+      initializeLedger?: boolean;
     },
   ) {
     this.cap = new SpendCap(cfg.maxTokensPerHour, cfg.maxTokensPerDay);
@@ -61,7 +64,10 @@ export class ZeroGBrain implements Brain {
   async init() {
     const { ethers } = await import("ethers");
     const sdk: any = await import("@0gfoundation/0g-compute-ts-sdk");
-    const provider = new ethers.JsonRpcProvider(this.cfg.rpc);
+    const chainId = Number(process.env.ZG_CHAIN_ID ?? 16602);
+    const discovered = await projectRpc(chainId, this.cfg.rpc);
+    const provider = new ethers.JsonRpcProvider(discovered.endpoint);
+    if ((await provider.getNetwork()).chainId !== BigInt(chainId)) throw new Error("0G RPC returned the wrong chain ID");
     const wallet = new ethers.Wallet(this.cfg.privateKey, provider);
     this.broker = await sdk.createZGComputeNetworkBroker(wallet);
     const providers = [...new Set([this.cfg.providerLarge, this.cfg.providerSmall].filter(Boolean))];
@@ -74,10 +80,11 @@ export class ZeroGBrain implements Brain {
     } catch (error) {
       // A transient RPC failure is not permission to create/fund another account.
       if (!/Account does not exist/i.test((error as Error).message)) throw error;
+      if (this.cfg.initializeLedger === false) return this;
       await this.broker.ledger.addLedger(this.cfg.minLedgerOg);
     }
     // SDK signer checks may create/fund provider sub-accounts. The ledger must exist first.
-    for (const p of providers) {
+    for (const p of this.cfg.initializeLedger === false ? [] : providers) {
       const status = await this.broker.inference.checkProviderSignerStatus(p);
       if (!status.isAcknowledged) throw new Error(`0G provider ${p} signer is not acknowledged`);
     }
@@ -89,8 +96,13 @@ export class ZeroGBrain implements Brain {
   }
 
   async ledgerOg() {
-    const l = await this.broker.ledger.getLedger();
-    return Number(l.availableBalance ?? l[1]) / OG;
+    try {
+      const l = await this.broker.ledger.getLedger();
+      return Number(l.availableBalance ?? l[1]) / OG;
+    } catch (error) {
+      if (/Account does not exist/i.test((error as Error).message)) return 0;
+      throw error;
+    }
   }
 
   async depositOg(amount: number) {

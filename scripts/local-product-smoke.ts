@@ -7,7 +7,7 @@ import { createPublicClient, createWalletClient, erc20Abi, http, keccak256, toBy
 import { privateKeyToAccount } from "viem/accounts";
 import { defineChain } from "viem";
 import { templateConfig, perpetuaVaultAbi, riskGateAbi } from "@perpetua/core";
-const base = "http://localhost:8787";
+const base = process.env.LOCAL_PRODUCT_API_URL ?? "http://localhost:8787";
 const pub = createPublicClient({ transport: http("http://127.0.0.1:8545") });
 assert.equal(await pub.getChainId(), 31337);
 assert.match(await pub.request({method:"web3_clientVersion"}), /anvil/i);
@@ -32,6 +32,10 @@ try {
  const signature = await account.signMessage({message:c.message});
  const { r } = await request("/auth/verify",{nonce:c.nonce,signature}); cookie = r.headers.get("set-cookie")!.split(";")[0];
  await request("/auth/verify",{nonce:c.nonce,signature},"POST",401);
+ const { body: runningNetwork } = await request("/v1/network");
+ assert.equal(runningNetwork.executionMode,"sim","This check requires local simulated execution");
+ assert.equal(runningNetwork.aiMode,"sim","Restart the API with pnpm api:sim before this check; real inference is intentionally excluded");
+ assert.equal(runningNetwork.candleSource,"synthetic","This check requires deterministic synthetic candles");
  assert.equal((await request("/v1/dashboard")).body.length,0);
  await request("/v1/investments/Atlas",undefined,"GET",403);
  const config = templateConfig("spot-dca"); config.symbols = ["LINK", "ETH"]; config.execution.pollSeconds = 5;
@@ -78,7 +82,9 @@ try {
  console.log("PASS: deposit, hosted trading, partial exit, full redemption including protected funds, sleep, history and private leaderboard.");
 } finally {
  // Remove only this check's definitions and deployment entries; retain chain receipts/evidence.
- const file=process.env.DEPLOYMENT_FILE!; const dep=JSON.parse(readFileSync(file,"utf8"));
- for(const id of ids){delete dep[id];try{unlinkSync(`.perpetua/definitions/${id}.json`)}catch{}}
- writeFileSync(file,JSON.stringify(dep,null,2));
+ if (ids.length) {
+  const file=process.env.DEPLOYMENT_FILE!; const dep=JSON.parse(readFileSync(file,"utf8"));
+  for(const id of ids){delete dep[id];try{unlinkSync(`.perpetua/definitions/${id}.json`)}catch{}}
+  writeFileSync(file,JSON.stringify(dep,null,2));
+ }
 }

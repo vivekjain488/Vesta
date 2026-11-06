@@ -28,7 +28,8 @@ import { Platform } from "./platform";
 import { chainOperation, localPriceUsd, prepareLocalWithdrawal, refreshLocalRisk } from "./local-withdrawals";
 import { deployLocalAgent, localFaucet } from "./local-agents";
 import { pendingWithdrawals, finishWithdrawals, startLocalRuntime } from "./local-runtime";
-import { ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
+import { registryRouter } from "./registry";
+import { latestMarket, marketCandles, marketHistory, safeMarketError, ArkivWriter, RiskCheckEntity, EXPIRY_DAYS, addr, jsonBytes, str128, u64, lookupSelector } from "@perpetua/arkiv";
 import { createPublicClient, erc20Abi, hexToString, http, keccak256, toBytes, parseUnits, formatUnits, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -51,6 +52,7 @@ const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:3000";
 const sessions = new WalletSessions(appOrigin);
 const sessionOwner = (req: express.Request) => sessions.read(req.headers.cookie)?.address as Address;
 app.use(express.json({ limit: "64kb" }));
+app.use("/registry", registryRouter());
 app.use((req, res, next) => {
   const origin = req.header("origin");
   if (origin && origin !== appOrigin) return void res.status(403).json({ error: "Origin not allowed" });
@@ -101,6 +103,10 @@ app.get("/v1/leaderboard", async (_, res) => {
 app.get("/v1/history/:agent", requireAgentOwner, async (req, res) => {
   try { res.json(await platform.history(String(req.params.agent))); } catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
+app.get("/v1/agents/:agent/compute-funding", requireAgentOwner, (req, res) => {
+  try { res.json(platform.computeFundingOf(String(req.params.agent))); }
+  catch { res.status(503).json({ error: "Compute funding status is unavailable" }); }
+});
 app.post("/v1/agents/:agent/prepare-withdrawal", requireAgentOwner, async (req, res) => {
   try { const payload = req.body.payload; if (payload?.agent !== req.params.agent) throw new Error("Agent mismatch"); const owner = await requireConfigAuth(req, "withdraw", payload); res.json(await prepareLocalWithdrawal(platform, owner, payload)); }
   catch (e) { res.status(400).json({ error: (e as Error).message }); }
@@ -128,7 +134,7 @@ app.post("/v1/agent-definitions/:id/deploy", async (req, res) => {
   } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
 app.get("/v1/network", async (req, res) => {
-  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", balanceUsdc: formatUnits(balance, 6) }); }
+  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", executionMode: process.env.FLASH_MODE ?? "sim", aiMode: process.env.ZG_MODE ?? "sim", candleSource: process.env.CANDLE_SOURCE ?? "kraken", balanceUsdc: formatUnits(balance, 6) }); }
   catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
 app.post("/v1/local-faucet", async (req, res) => { try { res.json(await localFaucet(platform, sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); } });
@@ -180,6 +186,26 @@ app.post("/v1/strategy/compile", async (req, res) => {
       res.json(await compileStrategy(compiler, req.body.payload?.prompt));
     } finally { compiling = false; }
   } catch (e) { if (e instanceof ZeroGServiceError) res.status(e.status).json({ error: e.message, code: e.code, requestId: e.requestId }); else res.status(400).json({ error: (e as Error).message }); }
+});
+
+// Shared market observations are read back from the configured, owner-filtered Arkiv mirror.
+app.get("/v1/market/status", (_, res) => {
+  const path = resolve(STATE, "market-service-status.json");
+  if (!existsSync(path)) return void res.status(503).json({ running: false, error: "Market mirror has not started" });
+  const status = JSON.parse(readFileSync(path, "utf8"));
+  res.json({ ...status, running: !status.stoppedAtMs && Date.now() - status.updatedAtMs < 60000, statusAgeMs: Date.now() - status.updatedAtMs });
+});
+app.get("/v1/market/:symbol/history", async (req, res) => {
+  try { res.json(await marketHistory(String(req.params.symbol), Number(req.query.beforeMs ?? Date.now() + 1), Number(req.query.limit ?? 50))); }
+  catch (e) { res.status(503).json({ error: safeMarketError(e) }); }
+});
+app.get("/v1/market/:symbol/candles", async (req, res) => {
+  try { res.json(await marketCandles(String(req.params.symbol), Number(req.query.limit ?? 400))); }
+  catch (e) { res.status(503).json({ error: safeMarketError(e) }); }
+});
+app.get("/v1/market/:symbol", async (req, res) => {
+  try { res.json(await latestMarket(String(req.params.symbol))); }
+  catch (e) { res.status(503).json({ error: safeMarketError(e) }); }
 });
 
 // ------------------------------------------------------------------------------------------- x402

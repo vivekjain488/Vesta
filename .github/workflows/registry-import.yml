@@ -1,0 +1,38 @@
+name: Chain and RPC registry daily mirror
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+concurrency:
+  group: arkiv-chain-registry-writer
+  cancel-in-progress: false
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .perpetua/registry-source
+            .perpetua/registry-import.json
+          key: registry-state-${{ github.run_id }}
+          restore-keys: registry-state-
+      - run: pnpm registry:import
+        env:
+          ARKIV_ACCESS_KEY: ${{ secrets.ARKIV_ACCESS_KEY }}
+          ARKIV_REGISTRY_PRIVATE_KEY: ${{ secrets.ARKIV_REGISTRY_PRIVATE_KEY }}
+          ARKIV_REGISTRY_WRITER_ADDRESS: "0x0f531Abb28A54435a5848AA70deF32040E2A2e65"
+          REGISTRY_CONCURRENCY: "8"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registry-import-evidence
+          path: |
+            .perpetua/registry-source-report.json
+            .perpetua/registry-live-verification.json

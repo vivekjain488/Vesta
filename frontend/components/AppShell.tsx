@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { Bot, LayoutGrid, Loader2, LogOut, Plus, Trophy, Wallet } from "lucide-react";
+import { Bot, LayoutGrid, Loader2, LogOut, Network, Plus, Trophy, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Micro } from "@/components/ui-perpetua";
@@ -14,6 +14,7 @@ const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutGrid },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/studio", label: "Create agent", icon: Bot },
+  { href: "/registry", label: "Chain registry", icon: Network },
 ] as const;
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;

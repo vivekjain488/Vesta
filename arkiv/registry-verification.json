@@ -1,0 +1,37 @@
+{
+  "verifiedAt": "2026-11-06T08:42:19.904Z",
+  "network": "Rabdi",
+  "arkivChainId": 7794095,
+  "writer": "0x0f531Abb28A54435a5848AA70deF32040E2A2e65",
+  "entityKey": "0x463f732aecac36bcd5f5bf71c6deefb462d2a465e1c487fac97f790cbc7d29c3",
+  "manifestEntityKey": "0xf7c5400e0ce2c25d45f582ebe3df4cbbf8972570e7ff045116afeec7125b4b40",
+  "snapshot": "9d150c3c5db041be196c504ce3ca6e74e5b38f1b0767b23ab050451ec91c4ac5",
+  "checkedAtMs": 1793954513402,
+  "ageMs": 11966,
+  "sourceCommit": "e17474286275730fb6b0490b1d7ea1c64a36ed9e",
+  "chainCount": 2855,
+  "rpcCount": 4219,
+  "source": "https://github.com/ethereum-lists/chains",
+  "license": "MIT",
+  "zeroG": {
+    "chainId": 16602,
+    "endpoint": "https://evmrpc-testnet.0g.ai",
+    "snapshot": "9d150c3c5db041be196c504ce3ca6e74e5b38f1b0767b23ab050451ec91c4ac5",
+    "chainEntityKey": "0x015cb9349fe6e0626f49712da5b66842a6281678a68c4dd96e02fdce141de331",
+    "rpcEntityKey": "0x15c1287ad3f8414336a2af0327792364783a9ae8ec2e707b862f88ac261bd62d",
+    "writer": "0x0f531Abb28A54435a5848AA70deF32040E2A2e65",
+    "checkedAtMs": 1793954535423,
+    "source": "arkiv"
+  },
+  "checks": [
+    "complete manifest and exact upstream counts",
+    "stable numeric keyset pagination",
+    "indexed case-insensitive name prefix and network classification",
+    "separate RPC transport/access filters",
+    "payload/index/hash integrity",
+    "live 0G chain ID verification",
+    "project runtime selects Arkiv instead of configured URL",
+    "anonymous public API with cross-origin reads",
+    "wallet dashboard still requires authentication"
+  ]
+}

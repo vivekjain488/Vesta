@@ -174,19 +174,7 @@ export const EXPIRY_DAYS = {
   leaderboard: 180,
 } as const;
 
-export const ALL_SCHEMAS = {
-  AtlasEntry,
-  AtlasSubmission,
-  AtlasImportRun,
-  AgentEntity,
-  SignalEntity,
-  TradeEntity,
-  RiskCheckEntity,
-  MandateEntity,
-  LedgerEntity,
-  DecisionLog,
-  LeaderboardSnapshot,
-};
+
 
 export { addr, bool, dec, i32, key, str, u64 };
 
@@ -200,3 +188,50 @@ export function str128(s: string): string {
 }
 
 export const jsonBytes = (o: unknown) => new TextEncoder().encode(JSON.stringify(o, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+
+// ----------------------------------------------------------------------------- Continuous public market mirror
+export const MarketObservation = defineSchema("perpetua.market-observation.v1", {
+  uid: str().indexed(),
+  record_type: str().indexed(), // latest | snapshot
+  venue: str().indexed(),
+  market_type: str().indexed(),
+  symbol: str().indexed(),
+  bucket_at_ms: u64().indexed(),
+  source_at_ms: u64().indexed(),
+  observed_at_ms: u64().indexed(),
+  published_at_ms: u64().indexed(),
+  bid: dec().indexed(),
+  ask: dec().indexed(),
+  mark_price: dec().indexed(),
+  index_price: dec().indexed(),
+  funding_rate: dec().indexed(),
+  open_interest: dec().indexed(),
+  content_hash: str().indexed(),
+  payload: bytes(), // JSON MarketSnapshot, preserving venue timestamps and top 20 book levels
+});
+export const MarketCandleWindow = defineSchema("perpetua.market-candles.v1", {
+  uid: str().indexed(),
+  venue: str().indexed(),
+  symbol: str().indexed(),
+  interval: str().indexed(),
+  observed_at_ms: u64().indexed(),
+  last_closed_at_ms: u64().indexed(),
+  content_hash: str().indexed(),
+  payload: bytes(), // gzip(JSON CandleWindow); hash covers the decompressed JSON
+});
+
+export const ALL_SCHEMAS = {
+  AtlasEntry,
+  AtlasSubmission,
+  AtlasImportRun,
+  AgentEntity,
+  SignalEntity,
+  TradeEntity,
+  RiskCheckEntity,
+  MandateEntity,
+  LedgerEntity,
+  DecisionLog,
+  LeaderboardSnapshot,
+  MarketObservation,
+  MarketCandleWindow,
+};

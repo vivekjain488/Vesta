@@ -107,6 +107,18 @@ export class Treasury {
     const hash = await this.c.wallet.writeContract({ address: this.address, abi: computeTreasuryAbi, functionName: "withdrawForLedger", args: [this.agentId, amount], account: this.c.account, chain: this.c.chain });
     return { hash, receipt: await this.c.pub.waitForTransactionReceipt({ hash }) };
   }
+  async funded(operationId: Hex): Promise<boolean> {
+    return this.c.pub.readContract({ address: this.address, abi: computeTreasuryAbi, functionName: "fundedOperations", args: [this.agentId, operationId] });
+  }
+  /** Atomic native conversion + recipient-ledger deposit; the operation ID prevents duplicate credits. */
+  async fundLedger(operationId: Hex, amount: bigint) {
+    const args = [this.agentId, operationId, amount] as const;
+    await this.c.pub.simulateContract({ address: this.address, abi: computeTreasuryAbi, functionName: "fundLedger", args, account: this.c.account });
+    const hash = await this.c.wallet.writeContract({ address: this.address, abi: computeTreasuryAbi, functionName: "fundLedger", args, account: this.c.account, chain: this.c.chain });
+    const receipt = await this.c.pub.waitForTransactionReceipt({ hash });
+    if (receipt.status !== "success") throw new Error("Compute ledger funding reverted");
+    return { hash, receipt };
+  }
 }
 
 export function revertReason(e: unknown): string {

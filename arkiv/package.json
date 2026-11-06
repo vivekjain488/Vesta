@@ -5,13 +5,17 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts", "./schemas": "./src/schemas.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas.ts"
+  },
   "scripts": {
     "import": "tsx src/import-atlas.ts",
     "verify": "tsx src/verify-calldata.ts",
     "query": "tsx src/queries.ts",
     "snapshot": "tsx src/leaderboard-snapshot.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "market": "tsx src/market-service.ts"
   },
   "dependencies": {
     "@perpetua/core": "workspace:*",
@@ -19,5 +23,9 @@
     "viem": "^2.57.16",
     "dotenv": "^16.4.7"
   },
-  "devDependencies": { "tsx": "^4.23.15", "typescript": "~5.9.3", "@types/node": "^22.19.0" }
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "@types/node": "^22.19.0"
+  }
 }

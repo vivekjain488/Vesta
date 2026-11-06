@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createPublicClient, http, getAddress, erc20Abi, type Address } from "viem";
 import { agentWalletAbi, perpetuaVaultAbi, riskGateAbi } from "@perpetua/core";
+import { projectTransport } from "@perpetua/arkiv";
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value, (_, v) => typeof v === "bigint" ? v.toString() : v));
 export class Platform {
-  readonly pub = createPublicClient({ transport: http(process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545") });
+  readonly pub = createPublicClient({ transport: projectTransport(Number(process.env.VAULT_CHAIN_ID ?? 31337), process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545") });
   constructor(readonly state: string) {}
   deployment() {
     const file = process.env.DEPLOYMENT_FILE ?? resolve(this.state, "../contracts/deployments/local-31337.json");
@@ -21,6 +22,21 @@ export class Platform {
     if (!/^[A-Za-z0-9_-]{1,60}$/.test(id)) throw new Error("Invalid agent");
     const path = resolve(this.state, `agent-${id}.json`);
     return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+  }
+  computeFundingOf(id: string) {
+    if (!/^[A-Za-z0-9_-]{1,60}$/.test(id)) throw new Error("Invalid agent");
+    const file = resolve(this.state, `compute-funding-${id}.json`);
+    const runtime = this.stateOf(id);
+    const journal = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+    return {
+      initialAllocation: { percent: 20, maximumUsd: 5 },
+      profitRefillPercent: 20,
+      status: journal?.status ?? runtime?.computeFunding ?? { action: "wait", reason: "funding_not_started", allowNewTrades: false },
+      bootstrapComplete: journal?.bootstrapComplete ?? false,
+      pending: journal?.intent ? { id: journal.intent.id, source: journal.intent.source, amountUsdMicros: journal.intent.amountUsd, minimumComputeWei: journal.intent.minimumComputeWei, createdAtMs: journal.intent.createdAtMs } : null,
+      progress: journal?.progress ?? null,
+      history: journal?.reservations ?? [],
+    };
   }
   async history(id: string) {
     const a = this.agent(id);
