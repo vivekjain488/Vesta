@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+@custom-variant dark (&:is(.dark *));
+
 /* Light-only design system. Visual reference: frontend/design/reference.png */
 
 @theme inline {
@@ -69,6 +71,15 @@
   --radius-2xl: calc(var(--radius) * 1.4);
   --radius-3xl: calc(var(--radius) * 2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-shiny-text: shiny-text 8s infinite;
+  @keyframes shiny-text {
+  0%, 90%, 100% {
+    background-position: calc(-100% - var(--shiny-width)) 0;
+    }
+  30%, 60% {
+    background-position: calc(100% + var(--shiny-width)) 0;
+    }
+  }
 }
 
 :root {
@@ -162,8 +173,124 @@
   animation: pulse-soft 2.4s ease-in-out infinite;
 }
 
+/* Pop-in for chips, tags and small UI that appears after an AI message (springy overshoot). Stagger with --pop-delay. */
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.pop-in {
+  animation: pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: var(--pop-delay, 0ms);
+}
+
+/* SVG level pills on the chart pop from their own centre. */
+.svg-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pop-in 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: var(--pop-delay, 0ms);
+}
+
+/* Candles cascade in left to right on first draw. */
+@keyframes candle-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+.candle-in {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: candle-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Typewriter caret. */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+.type-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: currentColor;
+  animation: caret-blink 0.9s steps(1) infinite;
+}
+
+/* Indeterminate step fill for the live action sheet. */
+@keyframes step-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.step-sweep {
+  animation: step-sweep 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+/* Newly selected segment / tab gives a small springy bump. */
+@keyframes tap-pop {
+  0% {
+    transform: scale(0.9);
+  }
+  55% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+[data-slot="toggle-group-item"][data-state="on"],
+[data-slot="tabs-trigger"][data-state="active"] {
+  animation: tap-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Pressed feel for every button-like control. */
+[data-slot="button"]:not(:disabled):active,
+[data-slot="toggle-group-item"]:not(:disabled):active,
+[data-slot="tabs-trigger"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+[data-slot="button"],
+[data-slot="toggle-group-item"] {
+  transition-property: background-color, color, border-color, box-shadow, transform;
+  transition-duration: 160ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pulse-soft {
+  .pulse-soft,
+  .pop-in,
+  .svg-pop,
+  .candle-in,
+  .step-sweep,
+  .type-caret,
+  [data-slot="toggle-group-item"][data-state="on"],
+  [data-slot="tabs-trigger"][data-state="active"] {
     animation: none;
   }
   * {

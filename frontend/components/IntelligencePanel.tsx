@@ -3,99 +3,19 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { Flip, reducedMotion, useGSAP } from "@/lib/gsap";
 import { AnimatedNumber } from "./motion";
-import { ArrowUp, ArrowUpRight, Bot, ChevronDown, ChevronRight, Plus, Sparkles } from "lucide-react";
+import { ArrowUp, ArrowUpRight, Bot, ChevronDown, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState, Hash, Micro, signedUsd, TierBadge } from "@/components/ui-perpetua";
+import { EmptyState, Micro, signedUsd, TierBadge } from "@/components/ui-perpetua";
 import { fmt, TIER_COPY } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { CppiBar } from "./CppiBar";
-import { ProofChips, useFeed, type Post } from "./Feed";
+import { AgentChat } from "./AgentChat";
 import { agentHref, agentSymbols, hasOpenTrade, isFunded, type DashboardAgent } from "./agent-utils";
 import { runwayDays } from "./useAgents";
-
-type Event =
-  | { kind: "post"; at: number; post: Post }
-  | { kind: "signal"; at: number; s: any }
-  | { kind: "trade"; at: number; t: any };
-
-const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-function Bubble({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "brand" | "trade" }) {
-  return <div className={cn("rounded-3xl px-4 py-3 text-sm", tone === "brand" ? "bg-brand-soft" : tone === "trade" ? "bg-trade-soft" : "bg-muted/70")}>{children}</div>;
-}
-
-function SignalEvent({ s }: { s: any }) {
-  const sig = s.signal;
-  if (!sig)
-    return (
-      <Bubble>
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium">Signal committed · {s.asset}</span>
-          <Micro>{time(s.createdAt * 1000)}</Micro>
-        </div>
-        <p className="mt-1 text-muted-foreground">Paying agents already have it. It is revealed here at {new Date(s.revealAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <Badge variant="muted" size="micro">Commit</Badge>
-          <Hash value={s.commitHash} head={10} tail={4} />
-        </div>
-      </Bubble>
-    );
-  return (
-    <Bubble tone="brand">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">
-          {sig.direction === "long" ? "Long" : "Flat"} proposal · {s.asset}
-        </span>
-        <Micro>{time(s.createdAt * 1000)}</Micro>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Badge variant="white" size="micro">conf {Number(sig.confidence).toFixed(2)}</Badge>
-        <Badge variant="white" size="micro">{sig.regime}</Badge>
-        {Number.isFinite(sig.rewardRisk) && <Badge variant="white" size="micro">R/R {Number(sig.rewardRisk).toFixed(1)}</Badge>}
-      </div>
-      <Collapsible className="mt-2">
-        <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          Reasoned on 0G <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-          {(sig.reasons ?? []).slice(0, 4).map((r: string, i: number) => (
-            <p key={i}>· {r}</p>
-          ))}
-          <p className="num">
-            Entry {fmt(sig.entry, 3)} · Stop {fmt(sig.stop, 3)} · Target {fmt(sig.target, 3)}
-          </p>
-          <p className="flex flex-wrap items-center gap-1.5">
-            0G chat <Hash value={s.chatId} /> · commit <Hash value={s.commitHash} head={10} tail={4} />
-          </p>
-        </CollapsibleContent>
-      </Collapsible>
-    </Bubble>
-  );
-}
-
-function TradeEvent({ t }: { t: any }) {
-  return (
-    <Bubble tone={t.status === "open" ? "trade" : "muted"}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">RiskGate approved · {t.asset}</span>
-        <Micro>{time(t.openedAt * 1000)}</Micro>
-      </div>
-      <p className="num mt-1 text-muted-foreground">
-        ${fmt(t.sizeUsd)} {t.embargoed ? "· levels under 15-min embargo" : `at $${fmt(t.entry, 3)} · stop $${fmt(t.stop, 3)} · target $${fmt(t.target, 3)}`}
-      </p>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <Badge variant={t.status === "open" ? "trade-solid" : "muted"} size="micro">{t.status}</Badge>
-        <span className="text-xs text-muted-foreground">approval</span> <Hash value={t.approvalTx} head={8} tail={4} />
-      </div>
-    </Bubble>
-  );
-}
 
 const SORTS = { profit: "Profit", capital: "Capital", runway: "Runway" } as const;
 
@@ -105,7 +25,7 @@ function AgentTile({ a, selected, onSelect }: { a: DashboardAgent; selected: boo
   return (
     <div
       data-flip-id={a.id}
-      data-reveal
+      data-reveal="pop"
       role="button"
       tabIndex={0}
       aria-pressed={selected}
@@ -140,7 +60,6 @@ function AgentTile({ a, selected, onSelect }: { a: DashboardAgent; selected: boo
 /** The reference's tall assistant card: the selected agent's verified activity, the owner's agents, next steps. */
 export function IntelligencePanel({ agent, agents, onSelect, loading, className }: { agent?: DashboardAgent; agents: DashboardAgent[]; onSelect: (id: string) => void; loading: boolean; className?: string }) {
   const [sort, setSort] = useState<keyof typeof SORTS>("profit");
-  const posts = useFeed(agent ? [agent.name, agent.id] : undefined);
 
   // Flip: capture tile positions before the sort changes, then animate them into their new order.
   const tilesRef = useRef<HTMLDivElement>(null);
@@ -158,16 +77,6 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
     },
     { dependencies: [sort], scope: tilesRef },
   );
-  const events = useMemo<Event[]>(() => {
-    if (!agent) return [];
-    const list: Event[] = [
-      ...posts.map((p) => ({ kind: "post" as const, at: p.at, post: p })),
-      ...((agent.runtime?.signals ?? []) as any[]).map((s) => ({ kind: "signal" as const, at: (s.createdAt ?? 0) * 1000, s })),
-      ...((agent.runtime?.trades ?? []) as any[]).map((t) => ({ kind: "trade" as const, at: (t.openedAt ?? 0) * 1000, t })),
-    ];
-    return list.sort((a, b) => b.at - a.at).slice(0, 24);
-  }, [agent, posts]);
-
   const sorted = useMemo(() => {
     const val = (a: DashboardAgent) => (sort === "profit" ? a.profit ?? 0 : sort === "capital" ? a.chain?.V ?? 0 : Math.min(runwayDays(a), 1e9));
     return [...agents].sort((a, b) => val(b) - val(a));
@@ -195,39 +104,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
         )}
       </div>
 
-      <ScrollArea className="mt-4 h-[340px] px-6">
-        {loading && !agent ? (
-          <div className="space-y-2.5">
-            <Skeleton className="h-20 rounded-3xl" />
-            <Skeleton className="h-24 rounded-3xl" />
-          </div>
-        ) : events.length === 0 ? (
-          <EmptyState title="No verified activity yet" icon={<Sparkles className="size-4" />} className="mt-2">
-            Signals, RiskGate approvals and the agent&apos;s posts appear here as they happen. No decisions are shown until they exist.
-          </EmptyState>
-        ) : (
-          <ol className="space-y-2.5 pb-4">
-            {events.map((e, i) => (
-              <li key={`${agent?.id}-${e.kind}-${e.at}-${i}`} data-reveal>
-                {e.kind === "post" ? (
-                  <Bubble>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{e.post.agent}</span>
-                      <Micro>{time(e.post.at)}</Micro>
-                    </div>
-                    <p className="mt-1 leading-relaxed">{e.post.text.split("\n")[0]}</p>
-                    <ProofChips proof={e.post.proof} />
-                  </Bubble>
-                ) : e.kind === "signal" ? (
-                  <SignalEvent s={e.s} />
-                ) : (
-                  <TradeEvent t={e.t} />
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
-      </ScrollArea>
+      <AgentChat agent={agent} loading={loading} />
 
       {agent?.chain && (
         <div className="flex flex-wrap gap-1.5 border-t border-border/70 px-6 py-3">

@@ -12,8 +12,14 @@ import { fmt } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { useWallet } from "./Wallet";
 import { AnimatedNumber } from "./motion";
+import { ActionSheet, useActionFlow, type FlowStep } from "./ActionSheet";
 
 const PRESETS = ["100", "500", "1000"] as const;
+const DEPOSIT_STEPS: FlowStep[] = [
+  { label: "Approve", match: /^Approve the USDC/, title: "Approving USDC" },
+  { label: "Deposit", match: /^Confirm the deposit/, title: "Depositing into the vault" },
+  { label: "Live", match: /(?!)/, title: "Updating RiskGate" },
+];
 
 /** Blue capital card (reference "wallet" card). Deposit flow unchanged: approve USDC → vault.deposit → refresh. */
 export function Funding({ agent, name, value, profit, className }: { agent: string; name?: string; value?: number | null; profit?: number | null; className?: string }) {
@@ -22,6 +28,7 @@ export function Funding({ agent, name, value, profit, className }: { agent: stri
   async function load() { setNetwork(await body(await apiFetch("/v1/network"))); const p = await body(await apiFetch(`/v1/investments/${agent}`)); setPortfolio(p); return p; }
   useEffect(() => { load().catch((e) => setMessage(e.message)); }, [agent]);
   async function run(work: () => Promise<void>) { setBusy(true); setMessage(""); try { await work(); } catch (e) { setMessage((e as Error).message); } finally { setBusy(false); } }
+  const flow = useActionFlow({ busy, message, steps: DEPOSIT_STEPS, success: /^Capital deposited/ });
   const max = network?.balanceUsdc ? String(Math.floor(Number(network.balanceUsdc) * 100) / 100) : null;
   const preset = PRESETS.find((p) => p === amount) ?? (max && amount === max ? "max" : "");
 
@@ -85,7 +92,14 @@ export function Funding({ agent, name, value, profit, className }: { agent: stri
           </Button>
         )}
       </div>
-      {message && <p role="status" className="mt-3 rounded-2xl bg-white/15 px-4 py-2.5 text-sm text-white">{message}</p>}
+      {message && <p key={message} role="status" className="pop-in mt-3 rounded-2xl bg-white/15 px-4 py-2.5 text-sm text-white">{message}</p>}
+      <ActionSheet
+        flow={flow}
+        tag={`${name ?? "Agent"} · vault deposit`}
+        doneTitle="Capital added"
+        errorTitle="Deposit didn't complete"
+        figure={<AnimatedNumber value={Number(amount) || 0} format={(n) => `${fmt(n)} USDC`} />}
+      />
     </section>
   );
 }

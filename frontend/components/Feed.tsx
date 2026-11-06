@@ -13,16 +13,28 @@ export interface Post {
 
 /** Polls the agents' public posts (mirrors their X posts), optionally for one agent. */
 export function useFeed(agent?: string | string[]) {
-  const [posts, setPosts] = useState<Post[]>([]);
+  return useFeedState(agent).posts;
+}
+
+/** Same as useFeed, plus whether the first response for this filter has arrived. */
+export function useFeedState(agent?: string | string[]) {
+  const [state, setState] = useState<{ key: string; posts: Post[]; loaded: boolean }>({ key: "", posts: [], loaded: false });
   const key = Array.isArray(agent) ? agent.join("|") : agent ?? "";
   useEffect(() => {
     const names = key ? key.split("|") : [];
-    const load = async () => setPosts(((await getJson<Post[]>("/v1/feed")) ?? []).filter((p) => !names.length || names.includes(p.agent)));
+    let active = true;
+    const load = async () => {
+      const posts = ((await getJson<Post[]>("/v1/feed")) ?? []).filter((p) => !names.length || names.includes(p.agent));
+      if (active) setState({ key, posts, loaded: true });
+    };
     load();
     const t = setInterval(load, 6000);
-    return () => clearInterval(t);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
   }, [key]);
-  return posts;
+  return state.key === key ? state : { key, posts: [] as Post[], loaded: false };
 }
 
 export function ProofChips({ proof }: { proof?: Record<string, string> }) {

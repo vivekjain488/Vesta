@@ -14,6 +14,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, PnL, StatusNote } from "@/components/ui-perpetua";
+import { ActionSheet, useActionFlow, type FlowStep } from "./ActionSheet";
+const WITHDRAW_STEPS: FlowStep[] = [
+  { label: "Sign", match: /^Review the withdrawal instruction/, title: "Signing the withdrawal" },
+  { label: "Settle", match: /^Closing positions and settling/, title: "Settling positions" },
+  { label: "Withdraw", match: /^(Confirm the (full )?withdrawal|Waiting for your withdrawal)/, title: "Withdrawing to your wallet" },
+];
 interface Position { id: string; kind: "cash" | "lending" | "spot"; token: Address; symbol: string; decimals: number; amount: string; valueUsd: number | null; unrealizedPnlUsd: number | null }
 interface Portfolio { owner: Address; vault: Address; riskGate: Address; ownerShares: string; maxWithdraw: string; maxRedeem: string; sleeping: boolean; minimumOperatingCapital: string; investments: Position[]; chainId: number; blockNumber: string; exitExecutionAvailable: boolean; withdrawalPending: boolean }
 export function Investments({ agent }: { agent: string }) {
@@ -55,6 +61,7 @@ export function Investments({ agent }: { agent: string }) {
     else { await body(await apiFetch(`/v1/agents/${agent}/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resume: true }) })); await refresh(); setSelected(null); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Position closed with no proceeds. No funds were transferred to your wallet."); return; }
     const after = await refresh(); setSelected(null); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage(`Withdrawal complete.${after.sleeping ? " The agent is sleeping because its remaining capital is below its operating minimum." : " The agent can continue with the remaining capital."}`);
   }
+  const flow = useActionFlow({ busy, message, steps: WITHDRAW_STEPS, success: /^(Withdrawal complete|All investments and the protected allocation|Position closed with no proceeds)/ });
   const kindLabel = (position: Position) => (position.kind === "cash" ? "Cash" : position.kind === "lending" ? "Protected allocation" : position.symbol);
   return <Card id="investments" className="scroll-mt-6">
     <CardHeader>
@@ -89,7 +96,8 @@ export function Investments({ agent }: { agent: string }) {
         </div>}
         {(portfolio.sleeping || portfolio.withdrawalPending) && BigInt(portfolio.ownerShares) > 0n && <Button variant="outline" disabled={busy} onClick={() => run(async () => { if (portfolio.sleeping) await transaction(portfolio.riskGate, encodeFunctionData({ abi: riskGateAbi, functionName: "resumeAfterWithdrawal" }), portfolio); await body(await apiFetch(`/v1/agents/${agent}/refresh`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resume: true }) })); await refresh(); window.dispatchEvent(new Event("perpetua:capital-changed")); setMessage("Agent resumed."); })}><RotateCcw /> Resume agent</Button>}
       </>}
-      {message && <StatusNote>{message}</StatusNote>}
+      {message && <StatusNote key={message} className="pop-in">{message}</StatusNote>}
+      <ActionSheet flow={flow} tag={`${selected ? (selected.kind === "lending" ? "Protected allocation" : selected.symbol) : "All investments"} · withdrawal`} doneTitle="Withdrawal complete" errorTitle="Withdrawal didn't complete" />
     </CardContent>
   </Card>;
 }

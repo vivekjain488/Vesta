@@ -17,6 +17,7 @@ const fromVars = (el: HTMLElement): gsap.TweenVars => {
     case "left": return { x: -32 };
     case "down": return { y: -20 };
     case "fade": return {};
+    case "pop": return { y: 18, scale: 0.9 };
     default: return { y: el.dataset.slot === "table-row" ? 14 : 40, scale: el.dataset.slot === "table-row" ? 1 : 0.95 };
   }
 };
@@ -33,17 +34,14 @@ export function RevealRoot({ children }: { children: ReactNode }) {
       const flush = () => {
         frame = 0;
         const batch = queue.splice(0).sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-        gsap.to(batch, {
-          autoAlpha: 1,
-          x: 0,
-          y: 0,
-          scale: 1,
-          duration: 0.95,
-          ease: "power4.out",
-          // ~65ms between items, but a long batch (e.g. a table) never takes more than 0.9s to finish cascading.
-          stagger: { amount: Math.min(0.9, Math.max(0, batch.length - 1) * 0.065) },
-          clearProps: "opacity,visibility,transform",
-        });
+        const pops = batch.filter((el) => el.dataset.reveal === "pop");
+        const rest = batch.filter((el) => el.dataset.reveal !== "pop");
+        const done = { autoAlpha: 1, x: 0, y: 0, scale: 1, clearProps: "opacity,visibility,transform" };
+        // ~65ms between items, but a long batch (e.g. a table) never takes more than 0.9s to finish cascading.
+        const stagger = (n: number) => ({ amount: Math.min(0.9, Math.max(0, n - 1) * 0.065) });
+        if (rest.length) gsap.to(rest, { ...done, duration: 0.95, ease: "power4.out", stagger: stagger(rest.length) });
+        // Springy overshoot for interactive / AI-generated elements.
+        if (pops.length) gsap.to(pops, { ...done, duration: 0.7, ease: "back.out(1.7)", stagger: stagger(pops.length), delay: rest.length ? 0.15 : 0 });
       };
 
       const io = new IntersectionObserver(

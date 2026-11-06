@@ -15,7 +15,14 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Micro, PageHeader, StatusNote } from "@/components/ui-perpetua";
 import { apiFetch, API } from "@/lib/api";
 import { useWallet } from "@/components/Wallet";
+import { ActionSheet, useActionFlow, type FlowStep } from "@/components/ActionSheet";
 import { cn } from "@/lib/utils";
+
+const CREATE_STEPS: FlowStep[] = [
+  { label: "Sign", match: /^Review and sign your strategy/, title: "Signing your strategy" },
+  { label: "Deploy", match: /^Creating your agent contracts/, title: "Deploying agent contracts" },
+  { label: "Open", match: /(?!)/, title: "Opening your agent" },
+];
 
 /** The reference's "- value +" field; the value stays directly editable. */
 function NumberField({ id, label, value, step, min, max, onChange }: { id: string; label: string; value: number; step: number; min?: number; max?: number; onChange: (n: number) => void }) {
@@ -51,6 +58,8 @@ export default function Studio() {
     const signature = await wallet.signMessage(message);
     return body(await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner: wallet.address, payload, nonce: c.nonce, signature }) }));
   }
+  // The create flow ends by navigating away; if it finished on the deploy message (no error replaced it), it succeeded.
+  const flow = useActionFlow({ busy, message, steps: CREATE_STEPS, success: /^Creating your agent contracts/ });
   async function run(work: () => Promise<void>) { setBusy(true); setMessage(""); try { await work(); } catch (e) { setMessage((e as Error).message); } finally { setBusy(false); } }
 
   return (
@@ -157,7 +166,8 @@ export default function Studio() {
                 setMessage("Creating your agent contracts…"); await body(await apiFetch(`/v1/agent-definitions/${definition.id}/deploy`, { method: "POST" })); router.push(`/agent/${definition.id}`);
               })}>{busy ? <><Loader2 className="animate-spin" /> Working…</> : "Create agent"}</Button>
             </div>
-            {message && <StatusNote>{message}</StatusNote>}
+            {message && <StatusNote key={message} className="pop-in">{message}</StatusNote>}
+            <ActionSheet flow={flow} tag={`${name.trim() || "New agent"} · ${config.symbols.join(", ")}`} doneTitle="Agent created" errorTitle="Agent wasn't created" figure={name.trim() || undefined} />
           </CardContent>
         </Card>
       </div>

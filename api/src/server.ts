@@ -128,7 +128,7 @@ app.post("/v1/agent-definitions/:id/deploy", async (req, res) => {
   } catch (e) { res.status(400).json({ error: (e as Error).message }); }
 });
 app.get("/v1/network", async (req, res) => {
-  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL, usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", balanceUsdc: formatUnits(balance, 6) }); }
+  try { const dep = platform.deployment(); const chainId = await platform.pub.getChainId(); const balance = await platform.pub.readContract({ address: dep.usdc, abi: erc20Abi, functionName: "balanceOf", args: [sessionOwner(req)] }); res.json({ chainId, rpc: process.env.PUBLIC_VAULT_RPC_URL ?? process.env.VAULT_RPC_URL ?? "http://127.0.0.1:8545", usdc: dep.usdc, local: chainId === 31337 && process.env.FLASH_MODE === "sim", balanceUsdc: formatUnits(balance, 6) }); }
   catch (e) { res.status(503).json({ error: (e as Error).message }); }
 });
 app.post("/v1/local-faucet", async (req, res) => { try { res.json(await localFaucet(platform, sessionOwner(req))); } catch (e) { res.status(400).json({ error: (e as Error).message }); } });

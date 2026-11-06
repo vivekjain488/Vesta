@@ -29,7 +29,7 @@ const priceDigits = (p: number) => (p >= 1000 ? 0 : p >= 100 ? 1 : p >= 1 ? 2 : 
 
 /** Candles drawn inside the [low, high] range bar recharts hands us. */
 function Candle(props: any) {
-  const { x, y, width, height, payload } = props;
+  const { x, y, width, height, payload, index = 0 } = props;
   if (!payload || !Number.isFinite(height)) return null;
   const { o, c, h, l } = payload;
   const span = h - l || 1;
@@ -41,7 +41,7 @@ function Candle(props: any) {
   const w = Math.max(2, Math.min(width * 0.62, 9));
   const color = up ? "#111111" : "#C9C9C6";
   return (
-    <g>
+    <g className="candle-in" style={{ animationDelay: `${Math.min(index * 12, 900)}ms` }}>
       <line x1={cx} x2={cx} y1={y} y2={y + height} stroke={color} strokeWidth={1.25} />
       <rect x={cx - w / 2} y={bodyTop} width={w} height={bodyH} rx={1.5} fill={color} />
     </g>
@@ -49,13 +49,13 @@ function Candle(props: any) {
 }
 
 /** End-of-line pill, like the reference's "9.190" and "STOP LOSS 8.10". */
-function LevelPill({ viewBox, text, fill, color = "#fff" }: { viewBox?: any; text: string; fill: string; color?: string }) {
+function LevelPill({ viewBox, text, fill, color = "#fff", delay = 0 }: { viewBox?: any; text: string; fill: string; color?: string; delay?: number }) {
   if (!viewBox) return null;
   const w = text.length * 6.6 + 18;
   const x = viewBox.x + viewBox.width - w - 4;
   const y = viewBox.y - 11;
   return (
-    <g>
+    <g className="svg-pop" style={{ ["--pop-delay" as string]: `${delay}ms` }}>
       <rect x={x} y={y} width={w} height={22} rx={11} fill={fill} />
       <text x={x + w / 2} y={y + 14.5} textAnchor="middle" fontSize={10.5} letterSpacing="0.06em" fill={color} style={{ fontFamily: "var(--font-mono)" }}>
         {text}
@@ -211,10 +211,10 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
               <RBar yAxisId="price" dataKey="range" shape={<Candle />} isAnimationActive={false} />
               <Line yAxisId="price" dataKey="ema" type="monotone" stroke="var(--color-ema)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={motion} animationBegin={150} animationDuration={1400} animationEasing="ease-out" />
               <Line yAxisId="price" dataKey="sma" type="monotone" stroke="var(--color-sma)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={motion} animationBegin={350} animationDuration={1400} animationEasing="ease-out" />
-              <ReferenceLine yAxisId="price" y={view.last.c} stroke="var(--brand)" strokeDasharray="3 4" strokeOpacity={0.6} label={<LevelPill text={fmt(view.last.c, d)} fill="var(--brand)" />} />
-              {view.drawn.entry != null && <ReferenceLine yAxisId="price" y={view.drawn.entry} stroke="#A3A3A3" strokeDasharray="3 4" label={<LevelPill text={`ENTRY ${fmt(view.drawn.entry, d)}`} fill="#E8E8E6" color="#111" />} />}
-              {view.drawn.target != null && <ReferenceLine yAxisId="price" y={view.drawn.target} stroke="var(--trade)" strokeDasharray="3 4" label={<LevelPill text={`TARGET ${fmt(view.drawn.target, d)}`} fill="var(--trade)" color="#111" />} />}
-              {view.drawn.stop != null && <ReferenceLine yAxisId="price" y={view.drawn.stop} stroke="#111" strokeDasharray="3 4" label={<LevelPill text={`STOP LOSS ${fmt(view.drawn.stop, d)}`} fill="#111" />} />}
+              <ReferenceLine yAxisId="price" y={view.last.c} stroke="var(--brand)" strokeDasharray="3 4" strokeOpacity={0.6} label={<LevelPill text={fmt(view.last.c, d)} fill="var(--brand)" delay={900} />} />
+              {view.drawn.entry != null && <ReferenceLine yAxisId="price" y={view.drawn.entry} stroke="#A3A3A3" strokeDasharray="3 4" label={<LevelPill delay={1050} text={`ENTRY ${fmt(view.drawn.entry, d)}`} fill="#E8E8E6" color="#111" />} />}
+              {view.drawn.target != null && <ReferenceLine yAxisId="price" y={view.drawn.target} stroke="var(--trade)" strokeDasharray="3 4" label={<LevelPill delay={1150} text={`TARGET ${fmt(view.drawn.target, d)}`} fill="var(--trade)" color="#111" />} />}
+              {view.drawn.stop != null && <ReferenceLine yAxisId="price" y={view.drawn.stop} stroke="#111" strokeDasharray="3 4" label={<LevelPill delay={1250} text={`STOP LOSS ${fmt(view.drawn.stop, d)}`} fill="#111" />} />}
             </ComposedChart>
           </ChartContainer>
         )}
