@@ -133,9 +133,9 @@ export function RpcDetail({ rpc, chain, snapshot, samples, now, onClose }: { rpc
     <div className="fixed inset-0 z-40">
       <button type="button" aria-label="Close RPC details" className="absolute inset-0 bg-black/25" onClick={onClose} />
       <aside role="dialog" aria-modal="true" aria-label={`${rpc.endpoint} health`} className="absolute inset-y-0 right-0 flex w-full max-w-[440px] flex-col border-l border-border bg-background shadow-2xl">
-        <div className="flex items-start justify-between gap-3 px-5 pt-5">
+        <div className="flex items-start justify-between gap-3 bg-trade-soft px-5 py-5">
           <div className="min-w-0">
-            <p className="micro text-muted-foreground">RPC health · {chain.name}</p>
+            <p className="micro text-trade-deep">RPC health · {chain.name}</p>
             <h2 className="mt-2 font-mono text-sm leading-relaxed break-all">{rpc.endpoint}</h2>
             <p className="mt-2 text-xs text-muted-foreground">{rpc.transport} · chain {chain.chainId} · measured from {vantage}</p>
           </div>

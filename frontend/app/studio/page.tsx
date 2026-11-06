@@ -68,7 +68,7 @@ export default function Studio() {
   return (
     <div className="space-y-6 pt-4 lg:pt-6">
       <PageHeader eyebrow="New agent" title="Create your agent" description="Choose a strategy, set your preferences, and review before signing with MetaMask." />
-      <ol aria-label="Agent creation progress" className="grid grid-cols-3 gap-2">{["Strategy", "Preferences", "Review"].map((label, i) => <li key={label} aria-current={step === i ? "step" : undefined} className={cn("rounded-2xl px-4 py-3 text-sm", step === i ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}><span className="mr-2 font-semibold">0{i + 1}</span>{label}</li>)}</ol>
+      <ol aria-label="Agent creation progress" className="grid grid-cols-3 gap-2">{["Strategy", "Preferences", "Review"].map((label, i) => <li key={label} aria-current={step === i ? "step" : undefined} className={cn("rounded-2xl px-4 py-3 text-sm", step === i ? "bg-trade text-foreground" : "bg-muted text-muted-foreground")}><span className="mr-2 font-semibold">0{i + 1}</span>{label}</li>)}</ol>
       <p className="text-sm text-muted-foreground">Agents currently use the local test network. Live deposits and autonomous trading are not enabled.</p>
       <div className={cn("grid gap-3", step === 2 ? "max-w-2xl" : "max-w-4xl")}>
         <fieldset disabled={!!savedId} className={cn("flex min-w-0 flex-col gap-3 border-0 p-0", step === 2 && "hidden")}>
@@ -96,7 +96,7 @@ export default function Studio() {
                     <ToggleGroupItem
                       key={t.id}
                       value={t.id}
-                      className={cn("relative h-auto w-full flex-col items-start justify-start gap-1 rounded-[22px] bg-muted p-4 text-left whitespace-normal text-foreground hover:bg-hover data-[state=on]:bg-card data-[state=on]:shadow-none", active && "ring-2 ring-brand")}
+                      className={cn("relative h-auto w-full flex-col items-start justify-start gap-1 rounded-[22px] bg-muted p-4 text-left whitespace-normal text-foreground hover:bg-hover data-[state=on]:bg-trade-soft data-[state=on]:shadow-none", active && "ring-2 ring-trade")}
                     >
                       <span className="flex w-full items-center justify-between gap-2">
                         <span className="font-medium">{t.label}</span>
@@ -114,7 +114,7 @@ export default function Studio() {
             <CardHeader><CardTitle>Personality and risk</CardTitle><CardDescription>Choose starting limits and describe how your agent should weigh opportunities. You can review and edit the limits before signing.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <ToggleGroup type="single" value={profile} onValueChange={(v) => { if (!v) return; const next = v as RiskProfile; setProfile(next); setConfig((c) => applyRiskProfile(c, next)); }} className="grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label="Risk personality">
-                {(Object.keys(RISK_PROFILES) as RiskProfile[]).map((key) => <ToggleGroupItem key={key} value={key} className="h-auto flex-col items-start gap-1 rounded-2xl bg-muted p-3 text-left whitespace-normal data-[state=on]:ring-2 data-[state=on]:ring-brand"><span className="font-medium">{RISK_PROFILES[key].label}</span><span className="text-xs font-normal text-muted-foreground">{RISK_PROFILES[key].description}</span></ToggleGroupItem>)}
+                {(Object.keys(RISK_PROFILES) as RiskProfile[]).map((key) => <ToggleGroupItem key={key} value={key} className="h-auto flex-col items-start gap-1 rounded-2xl bg-muted p-3 text-left whitespace-normal data-[state=on]:bg-trade-soft data-[state=on]:ring-2 data-[state=on]:ring-trade"><span className="font-medium">{RISK_PROFILES[key].label}</span><span className="text-xs font-normal text-muted-foreground">{RISK_PROFILES[key].description}</span></ToggleGroupItem>)}
               </ToggleGroup>
               <div className="space-y-1.5"><Label htmlFor="personality">Additional personality instructions</Label><Textarea id="personality" value={personality} onChange={(e) => setPersonality(e.target.value)} maxLength={2500} placeholder="For example: favor trend breakouts, take profits gradually, and avoid trading on weak evidence." /><p className="text-xs text-muted-foreground">Personality guides analysis and sizing; it cannot override the signed limits or guarantee results.</p></div>
             </CardContent>
@@ -178,7 +178,7 @@ export default function Studio() {
               </Alert>
             )}
             <div className="pt-3">
-              <Button size="xl" className="w-full" disabled={busy || !name.trim() || unresolved || config.market !== "spot" || (!!prompt.trim() && (!compiledFor || compiledFor.prompt !== prompt || compiledFor.profile !== profile))} onClick={() => run(async () => {
+              <Button variant="trade" size="xl" className="w-full" disabled={busy || !name.trim() || unresolved || config.market !== "spot" || (!!prompt.trim() && (!compiledFor || compiledFor.prompt !== prompt || compiledFor.profile !== profile))} onClick={() => run(async () => {
                 const validated = validateStrategyConfig(config);
                 const instructions = [prompt.trim() && `Owner strategy: ${prompt.trim()}`, personality.trim() && `Additional owner preferences: ${personality.trim()}`, `Risk personality (secondary to explicit owner strategy): ${RISK_PROFILES[profile].instructions}`].filter(Boolean).join("\n\n");
                 if (instructions.length > 4000) throw new Error("Strategy description and personality together must be at most 4000 characters");
@@ -193,7 +193,7 @@ export default function Studio() {
           </CardContent>
         </Card>
       </div>
-      <div className="flex max-w-4xl justify-between gap-3"><Button variant="outline" disabled={busy || step === 0 || !!savedId} onClick={() => setStep((s) => s - 1)}>Back</Button>{step < 2 && <Button disabled={busy || (step === 0 && !name.trim())} onClick={() => setStep((s) => s + 1)}>Continue</Button>}</div>
+      <div className="flex max-w-4xl justify-between gap-3"><Button variant="outline" disabled={busy || step === 0 || !!savedId} onClick={() => setStep((s) => s - 1)}>Back</Button>{step < 2 && <Button variant="trade" disabled={busy || (step === 0 && !name.trim())} onClick={() => setStep((s) => s + 1)}>Continue</Button>}</div>
     </div>
   );
 }

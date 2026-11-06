@@ -117,7 +117,7 @@ function Rail({ address, onSignOut }: { address: string; onSignOut: () => void }
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button asChild size="icon-xl" aria-label="Create agent">
+            <Button asChild variant="trade" size="icon-xl" aria-label="Create agent">
               <Link href="/studio"><Plus /></Link>
             </Button>
           </TooltipTrigger>

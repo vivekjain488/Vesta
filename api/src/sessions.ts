@@ -2,7 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { getAddress, verifyMessage, type Hex } from "viem";
 import { createSiweMessage } from "viem/siwe";
 
-export const SESSION_COOKIE = "perpetua_session";
+const cookieName = process.env.PERPETUA_SESSION_COOKIE ?? "perpetua_session";
+if (!/^[A-Za-z0-9_-]+$/.test(cookieName)) throw new Error("Invalid session cookie name");
+export const SESSION_COOKIE = cookieName;
 export class WalletSessions {
   private challenges = new Map<string, { address: string; message: string; expires: number }>();
   private sessions = new Map<string, { address: string; expires: number }>();

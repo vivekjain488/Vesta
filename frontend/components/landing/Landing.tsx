@@ -65,10 +65,10 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
             <BorderBeam size={60} duration={7} colorFrom="#FF4D00" colorTo="#5B7CFA" />
           </span>
           <SplitHeading className="mt-7 font-display text-[3.4rem] leading-[0.95] tracking-tight sm:text-7xl md:text-[5.6rem]">
-            Build an agent around your strategy.
+            Agents that pay for their own brains.
           </SplitHeading>
           <p data-reveal className="mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
-            <ZeroGText text="Explore wallet-connected AI trading agents, choose a strategy, and test controls in a local environment. Live funding and autonomous execution are still being built." />
+            <ZeroGText text="Our goal: agents that turn their income into 0G compute. Connect your wallet, choose a strategy, and explore the local prototype. Live funding and autonomous execution are still being built." />
           </p>
           <div data-reveal className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
             <Primary />

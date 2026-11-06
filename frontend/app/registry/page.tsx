@@ -131,7 +131,11 @@ export default function RegistryPage() {
 
   return (
     <div className="space-y-6 pt-4 lg:pt-6">
-      <PageHeader eyebrow="Public Ethereum infrastructure" title="Chain & RPC registry" description="Chain metadata and RPC endpoints come from Arkiv. Our monitor samples eligible public HTTPS endpoints from this host; results are observations, not provider guarantees." />
+      <div className="relative isolate overflow-hidden rounded-[28px] bg-trade-soft px-6 py-7 sm:px-8 sm:py-9">
+        <div aria-hidden className="pointer-events-none absolute -top-28 -right-12 -z-10 size-72 rounded-full bg-trade/20 blur-3xl" />
+        <PageHeader eyebrow="Public Ethereum infrastructure" title="Chain & RPC registry" description="Explore chain metadata and endpoints on Arkiv. Live health checks are observations from this host, not provider guarantees." />
+        <div className="mt-5 flex flex-wrap gap-2"><Badge variant="trade">Public registry</Badge><Badge variant="secondary">Live RPC checks</Badge><Badge variant="secondary">Powered by Arkiv</Badge></div>
+      </div>
 
       {/* Snapshot stats */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -150,10 +154,11 @@ export default function RegistryPage() {
       {/* Search */}
       <Card>
         <CardContent className="space-y-3">
+          <div><Micro className="text-trade-deep">Find a network</Micro><p className="mt-1 text-sm text-muted-foreground">Search by name or chain ID, then select a chain to inspect its RPCs.</p></div>
           <form className="flex items-center gap-2 rounded-[22px] bg-muted p-2 pl-4" onSubmit={(e) => { e.preventDefault(); void search(); }}>
             <Search className="size-4 shrink-0 text-muted-foreground" />
             <input aria-label="Chain ID or name prefix" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint" placeholder="Chain ID or name prefix, e.g. 16602 or Ethereum" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <Button type="submit" disabled={busy}>{busy ? <><Loader2 className="animate-spin" /> Querying Arkiv…</> : <>Search <ArrowRight /></>}</Button>
+            <Button variant="trade" type="submit" disabled={busy}>{busy ? <><Loader2 className="animate-spin" /> Querying Arkiv…</> : <>Search <ArrowRight /></>}</Button>
           </form>
           <div className="flex flex-wrap items-center gap-2">
             <Micro>Network</Micro>
@@ -204,7 +209,7 @@ export default function RegistryPage() {
                     <TableCell className="text-muted-foreground">{chain.nativeSymbol}</TableCell>
                     <TableCell className="num text-right">{chain.rpcCount}</TableCell>
                     <TableCell className="num text-right">{chain.publicHttpsCount}</TableCell>
-                    <TableCell className="text-right"><Button variant={selection?.chainId === chain.chainId ? "default" : "soft"} size="sm" onClick={() => void inspect(chain)}>View RPCs</Button></TableCell>
+                    <TableCell className="text-right"><Button variant={selection?.chainId === chain.chainId ? "trade" : "soft"} size="sm" onClick={() => void inspect(chain)}>View RPCs</Button></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -220,14 +225,14 @@ export default function RegistryPage() {
 
       {/* Selected chain RPCs */}
       {selection && (
-        <Card id="registry-rpcs" className="scroll-mt-6">
+        <Card id="registry-rpcs" className="scroll-mt-6 ring-1 ring-trade/20">
           <CardHeader>
             <CardTitle>{selection.name} RPCs</CardTitle>
             <CardDescription>
               Chain ID <span className="num font-mono">{selection.chainId}</span> · {selection.nativeSymbol} · <span className="capitalize">{selection.networkType}</span>
             </CardDescription>
             <CardAction>
-              <Button onClick={() => void runChecks(selectedRpcs)} disabled={!selectedRpcs.length || selectedRpcs.some((hash) => checking.includes(hash))}>
+              <Button variant="trade" onClick={() => void runChecks(selectedRpcs)} disabled={!selectedRpcs.length || selectedRpcs.some((hash) => checking.includes(hash))}>
                 {selectedRpcs.some((hash) => checking.includes(hash)) ? <Loader2 className="animate-spin" /> : <ShieldCheck />} Check selected ({selectedRpcs.length}/10)
               </Button>
             </CardAction>

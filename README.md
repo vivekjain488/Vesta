@@ -136,6 +136,8 @@ See the [local walkthrough and integration status](docs/local-walkthrough.md) fo
 
 Requires Node ≥ 22.13, pnpm 10, and Foundry (`brew install foundry`).
 
+On macOS, run `./start-mac.command` from the project root, or double-click it in Finder. It starts or reuses local Anvil, the API and the website, then opens <http://localhost:3000>. Leave the window open; Ctrl+C stops only services started by the launcher. A newly started Anvil saves its chain in `.perpetua/anvil-state.json`. Existing services are reused as configured, so restart an existing website to load new code. If a saved deployment exists without its original chain, the launcher stops instead of resetting it. The launcher starts the API in local simulation mode; it does not start live 0G inference or autonomous trading. The first run may install dependencies and build contracts.
+
 ```bash
 pnpm install
 pnpm setup:contracts          # forge-std v1.9.6 + OpenZeppelin v5.1.0 into contracts/lib, forge build
