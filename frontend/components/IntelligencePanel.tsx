@@ -14,6 +14,7 @@ import { fmt, TIER_COPY } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { CppiBar } from "./CppiBar";
 import { AgentChat } from "./AgentChat";
+import { ZeroGText } from "./ZeroG";
 import { agentHref, agentSymbols, hasOpenTrade, isFunded, type DashboardAgent } from "./agent-utils";
 import { runwayDays } from "./useAgents";
 
@@ -108,7 +109,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
 
       {agent?.chain && (
         <div className="flex flex-wrap gap-1.5 border-t border-border/70 px-6 py-3">
-          <Badge variant="secondary" className="num">Burn {fmt(agent.runtime?.burnOgPerHour ?? 0, 4)} 0G/h</Badge>
+          <Badge variant="secondary" className="num"><ZeroGText text={`Burn ${fmt(agent.runtime?.burnOgPerHour ?? 0, 4)} 0G/h`} /></Badge>
           <Badge variant="secondary" className="num">Income harvested ${fmt(agent.chain.harvested)}</Badge>
           <Badge variant="secondary" className="num">Pending ${fmt(agent.chain.harvestable)}</Badge>
           <TierBadge tier={tier} />

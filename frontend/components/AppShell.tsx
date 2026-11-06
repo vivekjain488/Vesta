@@ -5,8 +5,8 @@ import { useState, type ReactNode } from "react";
 import { Bot, LayoutGrid, Loader2, LogOut, Plus, Trophy, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ErrorNote, Micro } from "@/components/ui-perpetua";
-import { SplitHeading } from "@/components/motion";
+import { Micro } from "@/components/ui-perpetua";
+import { Landing } from "@/components/landing/Landing";
 import { cn } from "@/lib/utils";
 import { useWallet } from "./Wallet";
 
@@ -23,6 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const wallet = useWallet();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const pathname = usePathname();
 
   if (!wallet.ready)
     return (
@@ -31,43 +32,26 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
     );
 
-  if (!wallet.address)
+  // Signed-out visitors (any route) and /welcome (anyone) see the full-bleed landing page.
+  if (!wallet.address || pathname === "/welcome")
     return (
-      <main className="flex min-h-screen items-center justify-center px-5 py-10">
-        <section data-reveal className="relative w-full max-w-md overflow-hidden rounded-[32px] bg-gradient-to-b from-[#6a88fb] to-brand p-8 text-white shadow-[0_24px_60px_-28px_rgba(91,124,250,0.6)] sm:p-10">
-          <div className="flex items-center justify-between">
-            <p className="font-display text-3xl leading-none">Perpetua</p>
-            <span className="micro rounded-full bg-white/15 px-2.5 py-1 text-white/90">Sign in</span>
-          </div>
-          <SplitHeading className="mt-14 font-display text-[3.4rem] leading-[0.95] tracking-tight">
-            Your agents.
-            <br />
-            Your capital.
-          </SplitHeading>
-          <p className="mt-5 text-white/80">Sign in with MetaMask to manage your agents and investments.</p>
-          <Button
-            size="xl"
-            disabled={busy}
-            className="mt-10 w-full"
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                await wallet.connect();
-                router.replace("/");
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? <><Loader2 className="animate-spin" /> Waiting for MetaMask…</> : "Sign in with MetaMask"}
-          </Button>
-          <p className="mt-3 text-center text-xs text-white/70">Signing in does not transfer funds or authorize trades.</p>
-          {error && <ErrorNote className="mt-5 bg-white text-loss">{error}</ErrorNote>}
-        </section>
-      </main>
+      <Landing
+        signedIn={!!wallet.address}
+        busy={busy}
+        error={error}
+        onSignIn={async () => {
+          setBusy(true);
+          setError("");
+          try {
+            await wallet.connect();
+            router.replace("/");
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
     );
 
   return (

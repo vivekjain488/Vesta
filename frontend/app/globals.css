@@ -102,7 +102,7 @@
   --input: #e8e8e6;
   --ring: #5b7cfa;
   --chart-1: #5b7cfa;
-  --chart-2: #ff8500;
+  --chart-2: #ff4d00;
   --chart-3: #111111;
   --chart-4: #a3a3a3;
   --chart-5: #16a36a;
@@ -111,10 +111,10 @@
   --brand: #5b7cfa;
   --brand-hover: #4869eb;
   --brand-soft: #e9eeff;
-  --trade: #ff8500;
-  --trade-hover: #ea7600;
-  --trade-soft: #fff0df;
-  --trade-deep: #c25e00;
+  --trade: #ff4d00;
+  --trade-hover: #e64500;
+  --trade-soft: #ffe9df;
+  --trade-deep: #c23a00;
   --profit: #16a36a;
   --loss: #e35d5b;
   --faint: #a3a3a3;
@@ -253,6 +253,135 @@
   animation: step-sweep 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
+/* Illustration light-trails: a short dash travels along a path drawn with pathLength="100". */
+/* Head: a short bright dash. Tail: a longer faint dash that starts behind the head and moves in lockstep, so the
+   pair reads as one streak fading out behind. Same duration, easing and delay keep them perfectly aligned. */
+/* For paths drawn with pathLength="100" (fixed numbers: var() inside keyframes does not interpolate). */
+@keyframes comet {
+  from {
+    stroke-dashoffset: 10;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+@keyframes comet-tail {
+  from {
+    stroke-dashoffset: 36;
+  }
+  to {
+    stroke-dashoffset: -74;
+  }
+}
+.comet,
+.comet-tail {
+  fill: none;
+  stroke-linecap: round;
+  animation-duration: var(--dur, 2.6s);
+  animation-delay: var(--delay, 0s);
+  animation-iteration-count: infinite;
+  /* sine in-out: eases into and out of each run without the hard acceleration */
+  animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+}
+.comet {
+  stroke-dasharray: 10 9999;
+  animation-name: comet;
+}
+.comet-tail {
+  stroke-dasharray: 26 9999;
+  opacity: 0.28;
+  animation-name: comet-tail;
+}
+
+/* Bars that fill and drain smoothly (scale from their left edge). */
+@keyframes bar-fill {
+  0% {
+    transform: scaleX(0.06);
+  }
+  45%,
+  85% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0.06);
+  }
+}
+.bar-fill {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: bar-fill var(--dur, 5s) cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Slow breathing for the footer's sun-dome glow (grows from its bottom centre). */
+@keyframes glow-dome {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+.glow-dome {
+  transform-origin: 50% 100%;
+  animation: glow-dome 7s ease-in-out infinite;
+}
+
+/* Gentle float and breathing for focal tiles. */
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.float-y {
+  transform-box: fill-box;
+  animation: float-y 4.5s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.08);
+  }
+}
+.breathe {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+@keyframes fade-cycle {
+  0%,
+  20% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  35%,
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.fade-cycle {
+  transform-box: fill-box;
+  animation: fade-cycle var(--dur, 5s) cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
 /* Newly selected segment / tab gives a small springy bump. */
 @keyframes tap-pop {
   0% {
@@ -289,6 +418,13 @@
   .candle-in,
   .step-sweep,
   .type-caret,
+  .comet,
+  .comet-tail,
+  .glow-dome,
+  .bar-fill,
+  .float-y,
+  .breathe,
+  .fade-cycle,
   [data-slot="toggle-group-item"][data-state="on"],
   [data-slot="tabs-trigger"][data-state="active"] {
     animation: none;

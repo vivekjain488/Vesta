@@ -1,6 +1,7 @@
 "use client";
 import { useRef } from "react";
 import { useBarTween } from "@/components/motion";
+import { ZeroGText } from "@/components/ZeroG";
 import { TIER_COPY } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +25,7 @@ export function RunwayBar({ name, days, tier }: { name: string; days: number; ti
         ))}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{t.label}</span> · {t.brain}
+        <span className="font-medium text-foreground">{t.label}</span> · <ZeroGText text={t.brain} />
       </p>
     </div>
   );

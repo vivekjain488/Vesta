@@ -18,6 +18,7 @@ import { dur, gsap } from "@/lib/gsap";
 import { cn } from "@/lib/utils";
 import { ProofChips, useFeedState, type Post } from "./Feed";
 import { PopGroup, StreamText } from "./StreamText";
+import { ZeroGText } from "./ZeroG";
 import type { DashboardAgent } from "./agent-utils";
 
 type Msg =
@@ -106,16 +107,16 @@ function Message({ m, typing, onTyped }: { m: Msg; typing: boolean; onTyped: () 
       {reasons.length > 0 && done ? (
         <Collapsible>
           <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            {label} <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+            <ZeroGText text={label} /> <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-1.5 space-y-1 text-xs text-muted-foreground">
             {reasons.slice(0, 4).map((r, i) => <p key={i}>· {r}</p>)}
-            {m.kind === "signal" && <p className="flex flex-wrap items-center gap-1.5">0G chat <Hash value={m.s.chatId} /></p>}
+            {m.kind === "signal" && <p className="flex flex-wrap items-center gap-1.5"><ZeroGText text="0G chat" /> <Hash value={m.s.chatId} /></p>}
           </CollapsibleContent>
         </Collapsible>
       ) : (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
-          {done ? label : <AnimatedShinyText className="mx-0 max-w-none text-muted-foreground">{label}…</AnimatedShinyText>}
+          {done ? <ZeroGText text={label} /> : <AnimatedShinyText className="mx-0 max-w-none text-muted-foreground"><ZeroGText text={`${label}…`} /></AnimatedShinyText>}
           {done && <ChevronRight className="size-3.5" />}
         </p>
       )}

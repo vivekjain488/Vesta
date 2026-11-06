@@ -16,6 +16,7 @@ import { Micro, PageHeader, StatusNote } from "@/components/ui-perpetua";
 import { apiFetch, API } from "@/lib/api";
 import { useWallet } from "@/components/Wallet";
 import { ActionSheet, useActionFlow, type FlowStep } from "@/components/ActionSheet";
+import { ZeroGText } from "@/components/ZeroG";
 import { cn } from "@/lib/utils";
 
 const CREATE_STEPS: FlowStep[] = [
@@ -108,7 +109,7 @@ export default function Studio() {
           <Card>
             <CardHeader>
               <CardTitle>Or describe your strategy</CardTitle>
-              <CardDescription>0G drafts a configuration from your description. Review every parameter before creating the agent.</CardDescription>
+              <CardDescription><ZeroGText text="0G drafts a configuration from your description. Review every parameter before creating the agent." /></CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-[22px] bg-muted p-2">

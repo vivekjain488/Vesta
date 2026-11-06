@@ -96,7 +96,7 @@ export function ActionSheet({ flow, tag, figure, doneTitle = "Done", errorTitle 
           aria-label={title}
           className="pointer-events-auto relative w-full max-w-[560px] overflow-hidden rounded-[28px] bg-[#0b0b0b] text-white shadow-[0_30px_80px_-20px_rgba(0,0,0,0.55)]"
         >
-          {tone === "working" && <BorderBeam size={120} duration={5} borderWidth={1.5} colorFrom="#5B7CFA" colorTo="#FF8500" />}
+          {tone === "working" && <BorderBeam size={120} duration={5} borderWidth={1.5} colorFrom="#5B7CFA" colorTo="#FF4D00" />}
           <div className="px-6 pt-3 pb-6">
             <div className="mx-auto h-1 w-10 rounded-full bg-white/20" aria-hidden />
             <div data-sheet-part className="mt-3 flex items-center justify-between">

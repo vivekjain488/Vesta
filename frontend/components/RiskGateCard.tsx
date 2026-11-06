@@ -9,6 +9,7 @@ import { EmptyState, Stat, TierBadge, ValueField } from "@/components/ui-perpetu
 import { fmt } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { CppiBar } from "./CppiBar";
+import { ZeroGText } from "./ZeroG";
 import { AnimatedNumber, useSwapFade } from "./motion";
 
 const usd = (n: number) => `$${fmt(n)}`;
@@ -76,9 +77,9 @@ export function RiskGateCard({ agent, loading, className }: { agent?: AgentView;
             <TabsContent value="metabolism" className="mt-3 space-y-4">
               <RunwayBar name={agent.name} days={runwayDays(agent)} tier={agent.runtime?.tier ?? "thrive"} />
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl bg-muted p-4">
-                <Stat label="0G ledger" value={`${fmt(agent.runtime?.lastLedgerOg ?? 0, 3)} 0G`} className="[&_dd]:text-base" />
-                <Stat label="Burn / hour" value={`${fmt(agent.runtime?.burnOgPerHour ?? 0, 4)} 0G`} className="[&_dd]:text-base" />
-                <Stat label="Harvested to 0G" value={`$${fmt(c.harvested)}`} className="[&_dd]:text-base" />
+                <Stat label={<ZeroGText text="0G ledger" />} value={<ZeroGText text={`${fmt(agent.runtime?.lastLedgerOg ?? 0, 3)} 0G`} />} className="[&_dd]:text-base" />
+                <Stat label="Burn / hour" value={<ZeroGText text={`${fmt(agent.runtime?.burnOgPerHour ?? 0, 4)} 0G`} />} className="[&_dd]:text-base" />
+                <Stat label={<ZeroGText text="Harvested to 0G" />} value={`$${fmt(c.harvested)}`} className="[&_dd]:text-base" />
                 <Stat label="Harvestable now" value={`$${fmt(c.harvestable)}`} className="[&_dd]:text-base" />
               </dl>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
