@@ -1,30 +1,15 @@
 "use client";
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { availabilityShade, hourBars, latencyShade, rollingAvailability, type HourBar, type RpcSample } from "@/lib/rpc-metrics";
+import { SHADE, hourBars, latencyShade, niceMax, type HourBar, type RpcSample } from "@/lib/rpc-metrics";
+import { cn } from "@/lib/utils";
 
-type Point = { at: number; value: number; count?: number; color?: string };
-
-function MiniGraph({ title, points, now, max, unit, count, windowMs }: { title: string; points: Point[]; now: number; max: number; unit: string; count: number; windowMs: number }) {
-  const width = 200, height = 56, left = 4, right = 4, top = 5, bottom = 5, start = now - windowMs;
-  const x = (at: number) => left + Math.max(0, Math.min(1, (at - start) / (now - start))) * (width - left - right);
-  const y = (value: number) => height - bottom - Math.max(0, Math.min(1, value / max)) * (height - top - bottom);
-  return <div className="min-w-[200px] max-w-[220px]">
-    <div className="flex justify-between gap-2 text-[10px] text-muted-foreground"><span>{title}</span><span>{count} {count === 1 ? "sample" : "samples"} · 0–{max}{unit}</span></div>
-    {points.length ? <svg role="img" aria-label={`${title} over the past ${windowMs === 1800000 ? "30 minutes" : "24 hours"}, ${count} samples`} viewBox={`0 0 ${width} ${height}`} className="mt-1 h-14 w-full overflow-visible rounded-lg bg-muted/50">
-      <line x1={left} x2={width - right} y1={y(0)} y2={y(0)} stroke="currentColor" opacity="0.15" />
-      {points.map((point, i) => i && point.at - points[i - 1].at <= 2 * 3600_000 ? <line key={`l${point.at}`} x1={x(points[i - 1].at)} y1={y(points[i - 1].value)} x2={x(point.at)} y2={y(point.value)} stroke={point.color ?? "currentColor"} opacity="0.8" strokeWidth="1.5" className="transition-all duration-700 motion-reduce:transition-none" /> : null)}
-      {points.map((point, i) => <circle key={`${point.at}-${i}`} cx={x(point.at)} cy={y(point.value)} r="2.8" fill={point.color ?? "currentColor"} className="transition-all duration-700 motion-reduce:transition-none"><title>{new Date(point.at).toLocaleString()}: {point.value}{unit}{point.count ? ` (${point.count} checks)` : ""}</title></circle>)}
-    </svg> : <div className="mt-1 flex h-14 items-center justify-center rounded-lg bg-muted/50 text-[10px] text-muted-foreground">No {title.toLowerCase()} samples yet</div>}
-    <div className="mt-1 flex justify-between text-[10px] text-faint"><span>{windowMs === 1800000 ? "30m ago" : "24h ago"}</span><span>now</span></div>
-  </div>;
-}
-
-export function ShadeTip({ color, tip, children }: { color?: string; tip: string; children: ReactNode }) {
+/** A coloured figure with a hover explanation. `plain` drops the dotted underline (for pills). */
+export function ShadeTip({ color, tip, children, plain }: { color?: string; tip: string; children: ReactNode; plain?: boolean }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="cursor-help underline decoration-dotted decoration-current/40 underline-offset-4" style={color ? { color } : undefined}>{children}</span>
+        <span className={cn("cursor-help", !plain && "underline decoration-dotted decoration-current/40 underline-offset-4")} style={color ? { color } : undefined}>{children}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[240px] items-start text-left leading-snug">{tip}</TooltipContent>
     </Tooltip>
@@ -39,18 +24,70 @@ function barTitle(bar: HourBar) {
   return `${when}: ${bar.successes}/${bar.count} probes passed`;
 }
 
+/** One slim bar per hour: green all passed, amber some failed, red all failed, gray not probed. */
 export function UptimeStrip({ samples, now, hours = 24, className = "" }: { samples: RpcSample[]; now: number; hours?: number; className?: string }) {
   const bars = hourBars(samples, now, hours);
   return (
-    <div className={`flex h-3 items-stretch gap-px ${className}`} role="img" aria-label={`${hours} hour uptime, empty slots have no probes`}>
-      {bars.map((bar) => <span key={bar.start} title={barTitle(bar)} className="min-w-0 flex-1 rounded-[1px]" style={{ background: bar.color }} />)}
+    <div className={cn("flex h-3 items-stretch gap-[2px]", className)} role="img" aria-label={`${hours} hour uptime, empty slots have no probes`}>
+      {bars.map((bar) => <span key={bar.start} title={barTitle(bar)} className="min-w-0 flex-1 rounded-[2px] transition-opacity duration-150 hover:opacity-70" style={{ background: bar.color }} />)}
     </div>
   );
 }
 
+const gapLimit = (windowMs: number) => (windowMs <= 3600_000 ? 10 * 60_000 : 2 * 3600_000 + 60_000);
+
+/** Compact latency trend for a table row. */
 export function RpcMetrics({ samples, now, windowMs }: { samples: RpcSample[]; now: number; windowMs: number }) {
-  const visible = samples.filter((s) => s.at >= now - windowMs);
-  const latency = visible.filter((s) => s.ok).map((s) => ({ at: s.at, value: s.latencyMs, color: latencyShade(s.latencyMs, true).color }));
-  const availability = rollingAvailability(samples).filter((s) => s.at >= now - windowMs).map((point) => ({ ...point, color: availabilityShade(point.value).color }));
-  return <div className="flex gap-4 text-foreground"><MiniGraph title="Latency (ms)" points={latency} now={now} max={Math.max(100, ...latency.map((p) => p.value))} unit=" ms" count={latency.length} windowMs={windowMs} /><MiniGraph title="Availability · 1h (%)" points={availability} now={now} max={100} unit="%" count={visible.length} windowMs={windowMs} /></div>;
+  const W = 128, H = 34, padX = 4, padY = 6, start = now - windowMs;
+  const visible = samples.filter((s) => s.at >= start && s.at <= now);
+  const ok = visible.filter((s) => s.ok);
+  const failed = visible.filter((s) => !s.ok);
+  if (!visible.length) return <div className="flex h-[34px] w-32 items-center" aria-label="No samples"><span className="h-px flex-1 border-t border-dashed border-border" /></div>;
+  const max = niceMax(Math.max(100, ...ok.map((s) => s.latencyMs)));
+  const x = (at: number) => padX + ((at - start) / windowMs) * (W - 2 * padX);
+  const y = (ms: number) => H - padY - Math.min(1, ms / max) * (H - 2 * padY);
+  const last = ok.at(-1);
+  const lastColor = last ? latencyShade(last.latencyMs, true).color : SHADE.none;
+  return (
+    <svg role="img" aria-label={`Latency over the past ${windowMs <= 3600_000 ? "30 minutes" : "24 hours"}, ${ok.length} successful samples, ${failed.length} failed`} viewBox={`0 0 ${W} ${H}`} className="h-[34px] w-32 overflow-visible">
+      <line x1={padX} x2={W - padX} y1={H - padY} y2={H - padY} stroke="currentColor" opacity="0.1" />
+      {ok.map((s, i) => i && s.at - ok[i - 1].at <= gapLimit(windowMs)
+        ? <line key={`l${s.at}`} x1={x(ok[i - 1].at)} y1={y(ok[i - 1].latencyMs)} x2={x(s.at)} y2={y(s.latencyMs)} stroke={latencyShade(s.latencyMs, true).color} strokeWidth="1.6" strokeLinecap="round" opacity="0.85" />
+        : null)}
+      {ok.map((s) => <circle key={`d${s.at}`} cx={x(s.at)} cy={y(s.latencyMs)} r={s === last ? 3 : 1.8} fill={latencyShade(s.latencyMs, true).color}><title>{new Date(s.at).toLocaleString()}: {s.latencyMs} ms</title></circle>)}
+      {failed.map((s) => <circle key={`f${s.at}`} cx={x(s.at)} cy={padY} r="2.4" fill="none" stroke={SHADE.bad} strokeWidth="1.4"><title>{new Date(s.at).toLocaleString()}: failed ({s.outcome?.replaceAll("_", " ") ?? "no answer"})</title></circle>)}
+      {last && <circle cx={x(last.at)} cy={y(last.latencyMs)} r="6" fill={lastColor} opacity="0.18" className="pulse-soft" />}
+    </svg>
+  );
+}
+
+/** Larger latency chart for the detail panel: threshold guides, coloured points, hover titles. */
+export function LatencyChart({ samples, now, hours = 24 }: { samples: RpcSample[]; now: number; hours?: number }) {
+  const W = 400, H = 132, left = 40, right = 8, top = 10, bottom = 20, windowMs = hours * 3600_000, start = now - windowMs;
+  const visible = samples.filter((s) => s.at >= start && s.at <= now);
+  const ok = visible.filter((s) => s.ok);
+  const failed = visible.filter((s) => !s.ok);
+  if (!visible.length) return <div className="flex h-[132px] items-center justify-center rounded-2xl bg-muted/60 text-xs text-muted-foreground">No samples yet</div>;
+  const max = niceMax(Math.max(100, ...ok.map((s) => s.latencyMs)));
+  const x = (at: number) => left + ((at - start) / windowMs) * (W - left - right);
+  const y = (ms: number) => H - bottom - Math.min(1, ms / max) * (H - top - bottom);
+  const guides = [{ ms: 100, color: SHADE.good }, { ms: 300, color: SHADE.warn }, { ms: 1000, color: SHADE.bad }].filter((g) => g.ms < max);
+  return (
+    <svg role="img" aria-label={`Latency over the past ${hours} hours`} viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible">
+      {[0, max / 2, max].map((v) => (
+        <g key={v}>
+          <line x1={left} x2={W - right} y1={y(v)} y2={y(v)} stroke="currentColor" opacity={v === 0 ? 0.18 : 0.07} />
+          <text x={left - 6} y={y(v) + 3} textAnchor="end" className="fill-muted-foreground" style={{ fontSize: 9 }}>{v >= 1000 ? `${v / 1000}s` : `${Math.round(v)}`}</text>
+        </g>
+      ))}
+      {guides.map((g) => <line key={g.ms} x1={left} x2={W - right} y1={y(g.ms)} y2={y(g.ms)} stroke={g.color} strokeDasharray="3 4" opacity="0.35" />)}
+      {ok.map((s, i) => i && s.at - ok[i - 1].at <= gapLimit(windowMs)
+        ? <line key={`l${s.at}`} x1={x(ok[i - 1].at)} y1={y(ok[i - 1].latencyMs)} x2={x(s.at)} y2={y(s.latencyMs)} stroke={latencyShade(s.latencyMs, true).color} strokeWidth="1.8" strokeLinecap="round" opacity="0.8" />
+        : null)}
+      {ok.map((s) => <circle key={`d${s.at}`} cx={x(s.at)} cy={y(s.latencyMs)} r="3" fill={latencyShade(s.latencyMs, true).color} className="transition-[r] duration-150 hover:[r:5px]"><title>{new Date(s.at).toLocaleString()}: {s.latencyMs} ms</title></circle>)}
+      {failed.map((s) => <circle key={`f${s.at}`} cx={x(s.at)} cy={top} r="3.2" fill="none" stroke={SHADE.bad} strokeWidth="1.6"><title>{new Date(s.at).toLocaleString()}: failed ({s.outcome?.replaceAll("_", " ") ?? "no answer"})</title></circle>)}
+      <text x={left} y={H - 4} className="fill-muted-foreground" style={{ fontSize: 9 }}>{hours}h ago</text>
+      <text x={W - right} y={H - 4} textAnchor="end" className="fill-muted-foreground" style={{ fontSize: 9 }}>now</text>
+    </svg>
+  );
 }

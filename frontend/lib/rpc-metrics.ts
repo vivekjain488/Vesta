@@ -137,3 +137,21 @@ export function rateLimitHint(samples: RpcSample[]): { level: "low" | "medium" |
 
 export const LATENCY_TIP = "Under 100 ms is fast, under 300 ms is good, under 1 second is slow, and slower than that is a poor answer time. Failed probes stay red.";
 export const AVAILABILITY_TIP = "99% and above is strong, 95% to 99% is mixed, and below 95% is weak. This is successful probes divided by probes we actually made, not a promise of continuous uptime.";
+
+/** "12s ago", "4m ago", "3h ago", "2d ago". */
+export function timeAgo(at: number, now = Date.now()) {
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/** Round a latency axis maximum up to a readable value. */
+export function niceMax(ms: number) {
+  for (const step of [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000]) if (ms <= step) return step;
+  return Math.ceil(ms / 5000) * 5000;
+}

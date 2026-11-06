@@ -1,16 +1,18 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, Loader2, Network, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ChevronRight, Info, Loader2, Network, Search, ShieldCheck } from "lucide-react";
 import { RpcDetail } from "@/components/rpc-detail";
 import { RpcMetrics, ShadeTip, UptimeStrip } from "@/components/rpc-metrics";
 import { startLiveRpcPolling } from "@/lib/live-rpc-poll";
-import { AVAILABILITY_TIP, LATENCY_TIP, availabilityShade, httpShade, latencyShade, samplesForDisplay, type RpcSample } from "@/lib/rpc-metrics";
+import { AVAILABILITY_TIP, LATENCY_TIP, SHADE, availabilityShade, httpShade, latencyShade, samplesForDisplay, timeAgo, type RpcSample } from "@/lib/rpc-metrics";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AnimatedNumber, scrollToId } from "@/components/motion";
 import { EmptyState, ErrorNote, Hash, Micro, PageHeader } from "@/components/ui-perpetua";
 import { cn } from "@/lib/utils";
@@ -239,23 +241,42 @@ export default function RegistryPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {selection.chainId === 5 && <p className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">Goerli is an older testnet whose core-team support ended; many listed endpoints may no longer work. <a className="underline" href="https://blog.ethereum.org/2023/11/30/goerli-lts-update" target="_blank" rel="noreferrer">Ethereum Foundation update</a>.</p>}
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted-foreground"><span aria-live="polite" className="font-medium text-foreground">{liveStatus}</span> · Checks run while this tab is visible; many endpoints may take longer per cycle.</p><ToggleGroup type="single" size="sm" value={graphWindow} onValueChange={(v) => { if (v === "30m" || v === "24h") setGraphWindow(v); }} aria-label="Graph time range"><ToggleGroupItem value="30m">30 min</ToggleGroupItem><ToggleGroupItem value="24h">24 hours</ToggleGroupItem></ToggleGroup></div>
-            <p className="text-xs text-muted-foreground">Green is healthy, amber is degraded, and red is poor. Hover a figure for the band. Open a row for sync, archive, batch, and transport detail. Availability counts probes we made, and empty uptime slots mean we have no sample. History is stored on Arkiv.</p>
+            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-2xl bg-muted/60 px-4 py-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <span className="relative flex size-2">
+                    {!liveStatus.startsWith("Waiting") && <span className="absolute inline-flex size-full animate-ping rounded-full opacity-60" style={{ background: SHADE.good }} />}
+                    <span className="relative inline-flex size-2 rounded-full" style={{ background: liveStatus.startsWith("Waiting") ? SHADE.none : SHADE.good }} />
+                  </span>
+                  <span aria-live="polite">{liveStatus}</span>
+                </span>
+                <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1" aria-label="Colour key">
+                  {([[SHADE.good, "Healthy"], [SHADE.warn, "Degraded"], [SHADE.bad, "Poor"], [SHADE.empty, "No data"]] as const).map(([color, label]) => (
+                    <span key={label} className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-2 rounded-full" style={{ background: color }} />{label}</span>
+                  ))}
+                  <Tooltip>
+                    <TooltipTrigger asChild><button type="button" aria-label="How to read this table" className="text-muted-foreground transition-colors hover:text-foreground"><Info className="size-3.5" /></button></TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-[300px] leading-snug">Live checks run while this tab is visible. A background monitor also probes every endpoint about every 30 minutes and stores the history on Arkiv. Hover a figure for its band, and open a row for sync, archive, batch and transport detail. Availability counts probes we made, and empty uptime slots mean we have no sample. History is stored on Arkiv.</TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5"><span className="text-xs text-muted-foreground">Trend</span><ToggleGroup type="single" size="sm" value={graphWindow} onValueChange={(v) => { if (v === "30m" || v === "24h") setGraphWindow(v); }} aria-label="Graph time range"><ToggleGroupItem value="30m">30 min</ToggleGroupItem><ToggleGroupItem value="24h">24 hours</ToggleGroupItem></ToggleGroup></div>
+            </div>
             {rpcLoading && rpcs.length === 0 ? (
               <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-11 rounded-2xl" />)}</div>
             ) : (
-              <Table>
+              <div className="overflow-hidden rounded-2xl border border-border/70">
+              <Table className="min-w-[960px]">
                 <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Select</TableHead>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40 [&>th]:h-10 [&>th]:text-[11px] [&>th]:font-medium [&>th]:tracking-[0.08em] [&>th]:text-muted-foreground [&>th]:uppercase">
+                    <TableHead className="w-12 pl-4"><span className="sr-only">Select</span></TableHead>
                     <TableHead>Endpoint</TableHead>
-                    <TableHead>Transport</TableHead>
-                    <TableHead>Access</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>HTTP</TableHead>
-                    <TableHead>Latency</TableHead>
-                    <TableHead>Availability (24h)</TableHead>
-                    <TableHead>Live graphs</TableHead>
+                    <TableHead className="w-44">Status</TableHead>
+                    <TableHead className="w-20">HTTP</TableHead>
+                    <TableHead className="w-24">Latency</TableHead>
+                    <TableHead className="w-48">Availability · 24h</TableHead>
+                    <TableHead className="w-40">Trend</TableHead>
+                    <TableHead className="w-10"><span className="sr-only">Details</span></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -270,20 +291,50 @@ export default function RegistryPage() {
                     const uptime = availabilityShade(availability);
                     const http = httpShade(sample?.httpStatus);
                     const measuredAt = Date.now();
-                    return <TableRow key={rpc.entityKey} className="cursor-pointer" data-state={openRpc?.endpointHash === rpc.endpointHash ? "selected" : undefined} onClick={() => setOpenRpc(rpc)}>
-                      <TableCell onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Select ${rpc.endpoint}`} checked={selectedRpcs.includes(rpc.endpointHash)} disabled={!selectedRpcs.includes(rpc.endpointHash) && selectedRpcs.length >= 10} onChange={(event) => selectRpc(rpc.endpointHash, event.target.checked)} /></TableCell>
-                      <TableCell className="max-w-sm min-w-48 font-mono text-xs break-all whitespace-normal">{rpc.endpoint}</TableCell>
-                      <TableCell><Badge variant="secondary" size="micro">{rpc.transport}</Badge></TableCell>
-                      <TableCell><Badge variant={rpc.requiresKey || rpc.eligibilityReason === "credentials_in_url" ? "trade" : "secondary"}>{rpc.requiresKey || rpc.eligibilityReason === "credentials_in_url" ? "Key required" : sample?.httpStatus === 401 ? "Authentication required" : sample?.httpStatus === 403 ? "Access denied" : "No key declared"}</Badge></TableCell>
-                      <TableCell className={cn("min-w-36 text-sm whitespace-normal", sample?.ok ? "text-profit" : "text-muted-foreground")}><span>{status}</span>{sample && <p className="mt-1 text-xs text-muted-foreground">{new Date(sample.at).toLocaleString()}{!check?.sample && m?.stale ? " · stale" : ""}</p>}</TableCell>
-                      <TableCell className="font-mono text-xs">{sample?.httpStatus != null ? <ShadeTip color={http.color} tip={`${http.label}. ${sample.httpStatus} is the HTTP status of the latest probe.`}>{sample.httpStatus}</ShadeTip> : "—"}</TableCell>
-                      <TableCell className="text-xs">{sample ? <ShadeTip color={latency.color} tip={`${latency.label}: ${sample.latencyMs} ms${sample.ok ? "" : ", and the probe failed"}. ${LATENCY_TIP}`}>{sample.latencyMs} ms{sample.ok ? "" : " (failed)"}</ShadeTip> : "—"}</TableCell>
-                      <TableCell className="min-w-40 text-xs">{availability === null ? "No samples" : <div className="space-y-1.5"><ShadeTip color={uptime.color} tip={`${uptime.label}: ${availability}% from ${successes}/${samples.length} checks. ${AVAILABILITY_TIP}`}>{availability}%</ShadeTip><UptimeStrip samples={samples} now={measuredAt} /><p className="text-muted-foreground">{successes}/{samples.length} checks</p></div>}</TableCell>
+                    const isChecking = checking.includes(rpc.endpointHash);
+                    const [, proto = "", hostPath = rpc.endpoint] = /^([a-z]+:\/\/)(.*)$/i.exec(rpc.endpoint) ?? [];
+                    const keyed = rpc.requiresKey || rpc.eligibilityReason === "credentials_in_url";
+                    const access = keyed ? "Key required" : sample?.httpStatus === 401 ? "Authentication required" : sample?.httpStatus === 403 ? "Access denied" : null;
+                    const dot = isChecking ? SHADE.warn : sample ? (sample.ok ? SHADE.good : SHADE.bad) : SHADE.none;
+                    const open = () => setOpenRpc(rpc);
+                    return <TableRow key={rpc.entityKey} tabIndex={0} aria-label={`Open health details for ${rpc.endpoint}`} className="group animate-in fade-in-0 cursor-pointer duration-300 fill-mode-both transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none data-[state=selected]:bg-trade-soft/70" data-state={openRpc?.endpointHash === rpc.endpointHash ? "selected" : undefined} onClick={open} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); open(); } }}>
+                      <TableCell className="pl-4" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                        <Checkbox aria-label={`Select ${rpc.endpoint}`} checked={selectedRpcs.includes(rpc.endpointHash)} disabled={!selectedRpcs.includes(rpc.endpointHash) && selectedRpcs.length >= 10} onCheckedChange={(value) => selectRpc(rpc.endpointHash, value === true)} />
+                      </TableCell>
+                      <TableCell className="max-w-[340px] min-w-[220px] whitespace-normal">
+                        <p className="truncate font-mono text-[13px]" title={rpc.endpoint}><span className="text-muted-foreground">{proto}</span>{hostPath}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <Badge variant="secondary" size="micro">{rpc.transport}</Badge>
+                          {access ? <Badge variant="trade" size="micro">{access}</Badge> : <span className="text-[11px] text-muted-foreground">No key declared</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-normal">
+                        <div className="flex items-center gap-2">
+                          <span className={cn("size-2 shrink-0 rounded-full transition-colors duration-500", isChecking && "pulse-soft")} style={{ background: dot }} />
+                          <span className={cn("text-sm font-medium capitalize", sample?.ok ? "text-profit" : sample ? "text-loss" : "text-muted-foreground")}>{status}</span>
+                        </div>
+                        {sample && <p className="mt-1 pl-4 text-[11px] text-muted-foreground" title={new Date(sample.at).toLocaleString()}>{timeAgo(sample.at, measuredAt)}{!check?.sample && m?.stale ? " · stale" : ""}</p>}
+                      </TableCell>
+                      <TableCell>{sample?.httpStatus != null ? <ShadeTip plain color={http.color} tip={`${http.label}. ${sample.httpStatus} is the HTTP status of the latest probe.`}><span className="inline-flex rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium" style={{ background: `${http.color}1a` }}>{sample.httpStatus}</span></ShadeTip> : <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell>{sample ? <><ShadeTip plain color={latency.color} tip={`${latency.label}: ${sample.latencyMs} ms${sample.ok ? "" : ", and the probe failed"}. ${LATENCY_TIP}`}><span className="num text-sm font-semibold">{sample.latencyMs}<span className="ml-0.5 text-[11px] font-normal text-muted-foreground">ms</span></span></ShadeTip>{!sample.ok && <p className="mt-0.5 text-[11px] text-loss">failed</p>}</> : <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell>
+                        {availability === null ? <span className="text-sm text-muted-foreground">No samples</span> : (
+                          <div className="space-y-1.5">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <ShadeTip plain color={uptime.color} tip={`${uptime.label}: ${availability}% from ${successes}/${samples.length} checks. ${AVAILABILITY_TIP}`}><span className="num text-sm font-semibold">{availability}%</span></ShadeTip>
+                              <span className="text-[11px] text-muted-foreground">{successes}/{samples.length} checks</span>
+                            </div>
+                            <UptimeStrip samples={samples} now={measuredAt} className="h-2.5" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell><RpcMetrics samples={samples} now={measuredAt} windowMs={graphWindow === "30m" ? 30 * 60_000 : 24 * 3600_000} /></TableCell>
+                      <TableCell className="pr-3"><ChevronRight className="size-4 text-muted-foreground/40 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-foreground" aria-hidden /></TableCell>
                     </TableRow>;
                   })}
                 </TableBody>
               </Table>
+              </div>
             )}
             <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setSelectedRpcs(rpcs.filter((rpc) => rpc.executionEligible).slice(0, 10).map((rpc) => rpc.endpointHash))} disabled={!rpcs.some((rpc) => rpc.executionEligible)}>Select eligible (up to 10)</Button><Button variant="ghost" size="sm" onClick={() => setSelectedRpcs([])} disabled={!selectedRpcs.length}>Clear selection</Button></div>
             {rpcAfter !== null && <Button variant="outline" disabled={rpcLoading} onClick={() => void moreRpcs()}>Load more RPCs</Button>}

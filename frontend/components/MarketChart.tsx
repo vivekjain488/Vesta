@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { EmptyState, Micro } from "@/components/ui-perpetua";
 import { fmt } from "@/lib/data";
-import { fetchCandles4h, supportedSymbol, type MarketSeries } from "@/lib/market";
+import { binanceStreamUrl, fetchCandles4h, supportedSymbol, type MarketSeries } from "@/lib/market";
 import { reducedMotion } from "@/lib/gsap";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +92,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
   const [range, setRange] = useState<keyof typeof RANGES>("10D");
   const [series, setSeries] = useState<MarketSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [streaming, setStreaming] = useState(false);
 
   useEffect(() => {
     if (!available.includes(symbol)) setSymbol(available[0]);
@@ -99,21 +100,67 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
 
   useEffect(() => {
     const ctrl = new AbortController();
-    const load = () =>
-      fetchCandles4h(symbol, 90 + 50, ctrl.signal)
-        .then((s) => {
-          setSeries(s);
+    let socket: WebSocket | null = null;
+    let lastUpdate = 0;
+    let loading = false;
+    let disposed = false;
+    const connect = () => {
+      const url = binanceStreamUrl(symbol);
+      if (!url || socket || disposed) return;
+      const ws = new WebSocket(url);
+      socket = ws;
+      ws.onmessage = (event) => {
+        try {
+          const k = JSON.parse(event.data).k;
+          if (!k || k.i !== "4h") return;
+          const bar = { t: Number(k.t) / 1000, o: Number(k.o), h: Number(k.h), l: Number(k.l), c: Number(k.c), v: Number(k.v) };
+          if (!Object.values(bar).every(Number.isFinite)) return;
+          lastUpdate = Date.now();
+          setStreaming(true);
           setError(null);
-        })
-        .catch((e) => {
-          if ((e as Error).name !== "AbortError") setError("Market data unavailable");
-        });
+          setSeries((previous) => {
+            if (!previous || previous.source !== "Binance" || bar.t < previous.bars[previous.bars.length - 1].t) return previous;
+            const bars = previous.bars.slice();
+            if (bar.t === bars[bars.length - 1].t) bars[bars.length - 1] = bar;
+            else bars.push(bar);
+            return { ...previous, bars: bars.slice(-140), fetchedAt: lastUpdate };
+          });
+        } catch { /* Ignore malformed exchange messages. */ }
+      };
+      ws.onerror = () => ws.close();
+      ws.onclose = () => { if (socket === ws) { socket = null; if (!disposed) setStreaming(false); } };
+    };
+    const load = async () => {
+      if (loading) return;
+      loading = true;
+      try {
+        const s = await fetchCandles4h(symbol, 140, ctrl.signal);
+        if (disposed) return;
+        setSeries(s);
+        setError(null);
+        if (s.source === "Binance") connect();
+        else { socket?.close(); socket = null; setStreaming(false); }
+      } catch (e) {
+        if (!disposed && (e as Error).name !== "AbortError") setError("Market data unavailable");
+      } finally { loading = false; }
+    };
     setSeries(null);
-    load();
-    const t = setInterval(load, 5 * 60_000);
+    setError(null);
+    setStreaming(false);
+    void load();
+    const t = setInterval(() => {
+      if (Date.now() - lastUpdate > 15_000) {
+        setStreaming(false);
+        socket?.close();
+        socket = null;
+        void load();
+      }
+    }, 10_000);
     return () => {
+      disposed = true;
       ctrl.abort();
       clearInterval(t);
+      socket?.close();
     };
   }, [symbol]);
 
@@ -152,7 +199,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
           <span className="flex size-6 items-center justify-center rounded-full bg-white/15">
             <CandlestickChart className="size-3.5" />
           </span>
-          <span className="text-sm font-medium">{symbol}/USD</span>
+          <span className="text-sm font-medium">{symbol}/{series?.source === "Binance" ? "USDT" : "USD"}</span>
           <span className="text-xs text-white/50">| 4H</span>
         </span>
         {view && (
@@ -160,7 +207,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
             <span className="text-brand-hover">{fmt(view.last.c, d)}</span>
             <span className={cn("ml-1", view.change < 0 ? "text-loss" : "text-profit")}>
               {view.change >= 0 ? "+" : "−"}
-              {(Math.abs(view.change) * 100).toFixed(1)}% 24h
+              {(Math.abs(view.change) * 100).toFixed(1)}% ~24h
             </span>
           </span>
         )}
@@ -184,7 +231,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
       </div>
 
       <div className="px-2 pt-2 pb-3 sm:px-3">
-        {error ? (
+        {error && !view ? (
           <EmptyState className="mx-3 my-4 min-h-[260px]" title="Market data unavailable" icon={<CandlestickChart className="size-4" />}>
             Public 4h candles for {symbol} could not be loaded. Nothing is shown rather than estimated prices.
           </EmptyState>
@@ -220,7 +267,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 px-5 py-3 sm:px-6">
-        <Micro>{series ? `${series.source} · closed 4h candles · ${new Date(series.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Public market data"}</Micro>
+        <Micro>{series ? `${series.source} · ${error ? "update unavailable" : streaming ? "live" : "refreshing every 10s"} · 4h candles · updated ${new Date(series.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Public market data"}</Micro>
         <Micro>
           {view?.hidden
             ? "Open trade levels are outside the live price range and not drawn"
