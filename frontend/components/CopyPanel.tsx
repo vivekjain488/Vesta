@@ -3,6 +3,9 @@ import { apiFetch } from "@/lib/api";
 import { useState } from "react";
 import { API } from "@/lib/data";
 import { useWallet } from "./Wallet";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 /**
  * One-tap copy. The follower sets a size cap; the API builds the SAME order (type, stop, target) for the
@@ -42,24 +45,27 @@ export function CopyPanel({ agent, hasOpenTrade }: { agent: string; hasOpenTrade
   }
 
   return (
-    <section className="rounded-sm border border-cushion/40 bg-cushion/5 p-5">
-      <h2 className="font-display text-3xl">Copy {agent}</h2>
-      <p className="mt-1 text-sm text-paper/75">
+    <section data-reveal className="rounded-[28px] bg-trade p-6 text-foreground">
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="font-display text-[2rem] leading-none">Copy {agent}</h2>
+        <Badge variant="trade-deep" size="micro">{hasOpenTrade ? "Open trade" : "Idle"}</Badge>
+      </div>
+      <p className="mt-2 text-sm text-foreground/75">
         Mirror the agent&apos;s current bracket order from your own wallet. You keep custody. The integrator fee goes to {agent}&apos;s treasury and pays for its next thought.
       </p>
-      <label className="mt-4 block text-xs uppercase tracking-wider text-dim" htmlFor="cap">
+      <label className="micro mt-5 block text-foreground/70" htmlFor="cap">
         Your size cap (USDC)
       </label>
-      <div className="mt-1 flex gap-2">
-        <input id="cap" type="number" min={1} max={100} value={cap} onChange={(e) => setCap(Number(e.target.value))} className="num w-28 rounded-sm border border-line bg-ink px-2 py-1.5" />
-        <button onClick={copy} disabled={busy || !hasOpenTrade} className="flex-1 rounded-sm bg-cushion px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40">
+      <div className="mt-1.5 flex gap-2">
+        <Input id="cap" type="number" min={1} max={100} value={cap} onChange={(e) => setCap(Number(e.target.value))} className="num w-28 bg-white/70 font-semibold hover:bg-white focus-visible:bg-white" />
+        <Button onClick={copy} disabled={busy || !hasOpenTrade} variant="white" size="lg" className="micro flex-1 text-xs">
           {busy ? "Working…" : w.address ? "Copy trade" : "Connect & copy"}
-        </button>
+        </Button>
       </div>
-      {!hasOpenTrade && <p className="mt-2 text-xs text-dim">No open trade to copy right now.</p>}
-      {w.address && <p className="num mt-2 break-all text-[11px] text-dim">{w.kind} · {w.address}</p>}
-      {status && <p className="mt-3 text-sm">{status}</p>}
-      <p className="mt-3 text-[11px] text-dim">Capped at $100 per copy. Not financial advice. The full track record, losses included, is shown left.</p>
+      {!hasOpenTrade && <p className="mt-2 text-xs text-foreground/70">No open trade to copy right now.</p>}
+      {w.address && <p className="mt-2 font-mono text-[11px] break-all text-foreground/60">{w.kind} · {w.address}</p>}
+      {status && <p role="status" className="mt-3 rounded-2xl bg-white/60 px-4 py-2.5 text-sm">{status}</p>}
+      <p className="mt-3 text-[11px] text-foreground/70">Capped at $100 per copy. Not financial advice. The full track record, losses included, is shown left.</p>
     </section>
   );
 }

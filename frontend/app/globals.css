@@ -1,41 +1,163 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-@theme {
-  --color-ink: #0d0c0a;
-  --color-panel: #15130f;
-  --color-line: #2a261f;
-  --color-paper: #ece6d8;
-  --color-dim: #8f8778;
-  --color-floor: #7fcfa0; /* protected: pi * P + R */
-  --color-cushion: #f0b445; /* the only money that may be risked */
-  --color-exposure: #ff6a45; /* E = min(m * C, E_max) */
-  --color-alive: #9be36b;
-  --color-dead: #b04a3c;
+@custom-variant dark (&:is(.dark *));
 
+/* Light-only design system. Visual reference: frontend/design/reference.png */
+
+@theme inline {
+  /* Fonts: Instrument Serif for display, Geist for UI + money, JetBrains Mono for micro labels / hashes. */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-serif), "Times New Roman", serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Brand + semantic accents */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-trade: var(--trade);
+  --color-trade-hover: var(--trade-hover);
+  --color-trade-soft: var(--trade-soft);
+  --color-trade-deep: var(--trade-deep);
+  --color-profit: var(--profit);
+  --color-loss: var(--loss);
+  --color-faint: var(--faint);
+  --color-hover: var(--hover);
+
+  /* CPPI meaning: floor is protected (blue), cushion may be risked (orange), exposure is the black marker. */
+  --color-floor: var(--brand);
+  --color-cushion: var(--trade);
+  --color-exposure: var(--foreground);
+
+  /* Legacy names still used by older markup; mapped onto the light palette so nothing renders dark. */
+  --color-ink: var(--background);
+  --color-panel: var(--card);
+  --color-line: var(--border);
+  --color-paper: var(--foreground);
+  --color-dim: var(--muted-foreground);
+  --color-alive: var(--profit);
+  --color-dead: var(--loss);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.15);
+  --radius-2xl: calc(var(--radius) * 1.4);
+  --radius-3xl: calc(var(--radius) * 2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-shiny-text: shiny-text 8s infinite;
+  @keyframes shiny-text {
+  0%, 90%, 100% {
+    background-position: calc(-100% - var(--shiny-width)) 0;
+    }
+  30%, 60% {
+    background-position: calc(100% + var(--shiny-width)) 0;
+    }
+  }
 }
 
-html,
-body {
-  background: var(--color-ink);
-  color: var(--color-paper);
+:root {
+  --background: #f5f5f3;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f1f0;
+  --secondary-foreground: #111111;
+  --muted: #f1f1f0;
+  --muted-foreground: #777777;
+  --accent: #eaeae8;
+  --accent-foreground: #111111;
+  --destructive: #e35d5b;
+  --border: #e8e8e6;
+  --input: #e8e8e6;
+  --ring: #5b7cfa;
+  --chart-1: #5b7cfa;
+  --chart-2: #ff4d00;
+  --chart-3: #111111;
+  --chart-4: #a3a3a3;
+  --chart-5: #16a36a;
+  --radius: 0.875rem;
+
+  --brand: #5b7cfa;
+  --brand-hover: #4869eb;
+  --brand-soft: #e9eeff;
+  --trade: #ff4d00;
+  --trade-hover: #e64500;
+  --trade-soft: #ffe9df;
+  --trade-deep: #c23a00;
+  --profit: #16a36a;
+  --loss: #e35d5b;
+  --faint: #a3a3a3;
+  --hover: #eaeae8;
 }
 
-body {
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
+/* Faint grid like the reference backdrop. */
+.canvas-grid {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(to right, rgb(17 17 17 / 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(17 17 17 / 0.025) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Tabular figures for any money / price / percentage. */
 .num {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-.grain {
-  background-image: radial-gradient(rgba(236, 230, 216, 0.035) 1px, transparent 1px);
-  background-size: 3px 3px;
+/* Mono uppercase micro label, as in the reference (COPY, PNL%, STOP LOSS). */
+.micro {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 @keyframes pulse-soft {
@@ -51,8 +173,263 @@ body {
   animation: pulse-soft 2.4s ease-in-out infinite;
 }
 
+/* Pop-in for chips, tags and small UI that appears after an AI message (springy overshoot). Stagger with --pop-delay. */
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.pop-in {
+  animation: pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: var(--pop-delay, 0ms);
+}
+
+/* SVG level pills on the chart pop from their own centre. */
+.svg-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pop-in 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: var(--pop-delay, 0ms);
+}
+
+/* Candles cascade in left to right on first draw. */
+@keyframes candle-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+.candle-in {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: candle-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Typewriter caret. */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+.type-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: currentColor;
+  animation: caret-blink 0.9s steps(1) infinite;
+}
+
+/* Indeterminate step fill for the live action sheet. */
+@keyframes step-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.step-sweep {
+  animation: step-sweep 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+/* Illustration light-trails: a short dash travels along a path drawn with pathLength="100". */
+/* Head: a short bright dash. Tail: a longer faint dash that starts behind the head and moves in lockstep, so the
+   pair reads as one streak fading out behind. Same duration, easing and delay keep them perfectly aligned. */
+/* For paths drawn with pathLength="100" (fixed numbers: var() inside keyframes does not interpolate). */
+@keyframes comet {
+  from {
+    stroke-dashoffset: 10;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+@keyframes comet-tail {
+  from {
+    stroke-dashoffset: 36;
+  }
+  to {
+    stroke-dashoffset: -74;
+  }
+}
+.comet,
+.comet-tail {
+  fill: none;
+  stroke-linecap: round;
+  animation-duration: var(--dur, 2.6s);
+  animation-delay: var(--delay, 0s);
+  animation-iteration-count: infinite;
+  /* sine in-out: eases into and out of each run without the hard acceleration */
+  animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+}
+.comet {
+  stroke-dasharray: 10 9999;
+  animation-name: comet;
+}
+.comet-tail {
+  stroke-dasharray: 26 9999;
+  opacity: 0.28;
+  animation-name: comet-tail;
+}
+
+/* Bars that fill and drain smoothly (scale from their left edge). */
+@keyframes bar-fill {
+  0% {
+    transform: scaleX(0.06);
+  }
+  45%,
+  85% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0.06);
+  }
+}
+.bar-fill {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: bar-fill var(--dur, 5s) cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Slow breathing for the footer's sun-dome glow (grows from its bottom centre). */
+@keyframes glow-dome {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+.glow-dome {
+  transform-origin: 50% 100%;
+  animation: glow-dome 7s ease-in-out infinite;
+}
+
+/* Gentle float and breathing for focal tiles. */
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.float-y {
+  transform-box: fill-box;
+  animation: float-y 4.5s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.08);
+  }
+}
+.breathe {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+@keyframes fade-cycle {
+  0%,
+  20% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  35%,
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.fade-cycle {
+  transform-box: fill-box;
+  animation: fade-cycle var(--dur, 5s) cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Newly selected segment / tab gives a small springy bump. */
+@keyframes tap-pop {
+  0% {
+    transform: scale(0.9);
+  }
+  55% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+[data-slot="toggle-group-item"][data-state="on"],
+[data-slot="tabs-trigger"][data-state="active"] {
+  animation: tap-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Pressed feel for every button-like control. */
+[data-slot="button"]:not(:disabled):active,
+[data-slot="toggle-group-item"]:not(:disabled):active,
+[data-slot="tabs-trigger"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+[data-slot="button"],
+[data-slot="toggle-group-item"] {
+  transition-property: background-color, color, border-color, box-shadow, transform;
+  transition-duration: 160ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pulse-soft {
+  .pulse-soft,
+  .pop-in,
+  .svg-pop,
+  .candle-in,
+  .step-sweep,
+  .type-caret,
+  .comet,
+  .comet-tail,
+  .glow-dome,
+  .bar-fill,
+  .float-y,
+  .breathe,
+  .fade-cycle,
+  [data-slot="toggle-group-item"][data-state="on"],
+  [data-slot="tabs-trigger"][data-state="active"] {
     animation: none;
+  }
+  * {
+    transition-duration: 0ms !important;
   }
 }

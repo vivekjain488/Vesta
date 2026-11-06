@@ -7,3 +7,6 @@ packages:
 onlyBuiltDependencies:
   - esbuild
   - sharp
+overrides:
+  # npm registry lists 1.5.478 but serves a 404 for its tarball; pin to the previous data release.
+  electron-to-chromium: 1.5.477
