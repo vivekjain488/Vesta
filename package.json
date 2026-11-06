@@ -17,6 +17,7 @@
     "agent": "pnpm --filter @perpetua/agent start",
     "hosted": "pnpm --filter @perpetua/agent hosted",
     "api": "pnpm --filter @perpetua/api start",
+    "api:sim": "FLASH_MODE=sim ZG_MODE=sim CANDLE_SOURCE=synthetic pnpm --filter @perpetua/api start",
     "arena": "pnpm --filter @perpetua/frontend dev",
     "keeper": "tsx scripts/keeper.ts",
     "backtest": "tsx scripts/backtest.ts",
