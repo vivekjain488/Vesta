@@ -42,6 +42,7 @@ import { Gate, Treasury } from "./riskgate";
 import { SimSettlement } from "./simSettlement";
 import { XPoster } from "./social";
 import { SimBrain, ZeroGBrain, type Brain, type BrainResult } from "./zerog";
+import { ZeroGRouterBrain, routerCapitalPolicy } from "./zerog-router";
 
 const REVEAL_DELAY_S = 15 * 60;
 const stateDir = () => process.env.PERPETUA_STATE_DIR ?? ".perpetua";
@@ -139,7 +140,9 @@ export class PerpetuaAgent {
 
   static async create(cfg: Config) {
     const brain: Brain =
-      cfg.zeroG.mode === "live"
+      cfg.zeroG.mode === "router"
+        ? new ZeroGRouterBrain({ ...cfg.zeroG, stateFile: `${stateDir()}/0g-router-${cfg.agentName}-budget.json` })
+        : cfg.zeroG.mode === "live"
         ? await new ZeroGBrain({ ...cfg.zeroG }).init()
         : new SimBrain({
             startOg: cfg.zeroG.simStartOg,
@@ -166,6 +169,11 @@ export class PerpetuaAgent {
   // ======================================================================= metabolism
 
   async runway(): Promise<{ hours: number; ledgerOg: number; policy: TierPolicy }> {
+    if (this.brain.fundingMode === "router") {
+      const capital = Number((await this.gate.vaultState()).totalAssets) / 1e6;
+      const config = this.cfg.strategyConfig;
+      return { hours: NaN, ledgerOg: NaN, policy: config ? routerCapitalPolicy(config, capital) : { ...tierFor(72) } };
+    }
     const ledgerOg = await this.brain.ledgerOg();
     const burn = Math.max(this.state.burnOgPerHour, 1e-6) * this.cfg.zeroG.burnAcceleration;
     const spendable = runwayHours({ ledgerBalanceOg: ledgerOg, reserveOg: this.cfg.zeroG.reserveOg, burnOgPerHour: burn });
@@ -185,6 +193,7 @@ export class PerpetuaAgent {
 
   /** Feeding: CCIP-delivered 0G sits in ComputeTreasury; pull it (within the daily cap) and fund the ledger. */
   async feed(): Promise<number> {
+    if (this.brain.fundingMode === "router") return 0; // Direct-ledger funds cannot be deposited into Router.
     let bal: bigint;
     try {
       bal = await this.treasury.balance();
@@ -297,7 +306,7 @@ export class PerpetuaAgent {
       winRate: closed ? this.state.wins / closed : 0,
       brier: 0.25,
       createdAt: this.state.createdAt,
-      meta: { vault: this.cfg.vault, riskGate: this.cfg.riskGate, wallet: this.cfg.wallet, chain: this.cfg.vaultChainId, ledgerOg: rw.ledgerOg, burnOgPerHour: this.state.burnOgPerHour, hibernating: flags.hibernating, caps: this.brain.caps() },
+      meta: { vault: this.cfg.vault, riskGate: this.cfg.riskGate, wallet: this.cfg.wallet, chain: this.cfg.vaultChainId, ledgerOg: rw.ledgerOg, burnOgPerHour: this.state.burnOgPerHour, hibernating: flags.hibernating, caps: this.brain.caps(), fundingMode: this.brain.fundingMode ?? "ledger", runwayKnown: Number.isFinite(rw.hours) },
     });
     this.save();
     return { tier: rw.policy.tier, runwayH: rw.hours, ledgerOg: rw.ledgerOg, woke: wake, mandate };
@@ -307,6 +316,7 @@ export class PerpetuaAgent {
     this.state.tier = to;
     const days = (hours / 24).toFixed(1);
     const msg =
+      this.brain.fundingMode === "router" ? `Router compute policy: ${to}. Account balance and runway are unavailable to this inference key.` :
       to === "starving"
         ? `I'm hungry. Runway ${days} days. Switching to rules-only and managing open positions. Feed me: copy a trade or buy a signal.`
         : to === "hibernate"
@@ -321,7 +331,7 @@ export class PerpetuaAgent {
   private async sentiment(a: AssetCfg, policy: TierPolicy, exposureUsd: number): Promise<{ result: BrainResult | null; score: number; reasons: string[] }> {
     if (this.cfg.strategyConfig) {
       const capital = Number((await this.gate.vaultState()).totalAssets) / 1e6;
-      const selected = capitalModelPolicy(this.cfg.strategyConfig, capital, await this.brain.ledgerOg());
+      const selected = this.brain.fundingMode === "router" ? routerCapitalPolicy(this.cfg.strategyConfig, capital) : capitalModelPolicy(this.cfg.strategyConfig, capital, await this.brain.ledgerOg());
       policy = { ...policy, model: !policy.model ? null : policy.model === "small" && selected.model === "large" ? "small" : selected.model };
     }
     const day = new Date().toISOString().slice(0, 10);
@@ -351,7 +361,7 @@ export class PerpetuaAgent {
     this.state.computeSpend!.og += Number.isFinite(result.costOg) && result.costOg > 0 ? result.costOg : 0;
     this.state.computeSpend!.unsettled ||= !Number.isFinite(result.costOg) || result.costOg <= 0;
     this.save();
-    this.recordSpend(result.costOg, Math.max((Date.now() - t0) / 3.6e6, this.cfg.tickSeconds / 3600));
+    if (Number.isFinite(result.costOg) && result.costOg > 0) this.recordSpend(result.costOg, Math.max((Date.now() - t0) / 3.6e6, this.cfg.tickSeconds / 3600));
     let score = 0;
     let reasons: string[] = [];
     try {
@@ -396,7 +406,10 @@ export class PerpetuaAgent {
       options,
     );
     console.log(`[signal] ${a.symbol} ${signal.direction} score=${signal.score.toFixed(3)} conf=${signal.confidence.toFixed(2)} ${signal.rejectedBy ?? ""}`);
-    if (signal.direction !== "long" || !s.result?.tee) return;
+    if (signal.direction !== "long" || !s.result?.tee) {
+      if (signal.direction === "long" && s.result && this.brain.fundingMode === "router") console.log("[0g] Router analysis recorded; a raw signer-bound TEE proof is required before RiskGate can authorize an order");
+      return;
+    }
 
     let size = sizePosition({ cushionUsd: C, exposureBudgetUsd: E, openExposureUsd: open, stopDistancePct: (signal.entry - signal.stop) / signal.entry, sizeMultiplier: signal.sizeMultiplier, liveTrades: this.state.liveTrades, halfSize: flags.halfSize || this.state.consecutiveLosses >= 3 });
     if (this.cfg.strategyConfig) {

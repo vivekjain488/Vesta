@@ -18,5 +18,5 @@ export async function compileStrategy(brain: Brain, prompt: string) {
   const output = JSON.parse(result.content.replace(/^```(?:json)?\s*|\s*```$/g, "").trim());
   for (const key of ["assumptions", "unsupportedRequirements"]) if (!Array.isArray(output[key]) || output[key].length > 30 || output[key].some((v: unknown) => typeof v !== "string" || v.length > 1000)) throw new Error("Compiler returned an invalid explanation");
   const config = validateStrategyConfig(output.config);
-  return { config, assumptions: output.assumptions as string[], unsupportedRequirements: output.unsupportedRequirements as string[], requiresClarification: output.unsupportedRequirements.length > 0, proof: { mode: brain.mode, chatId: result.chatId, provider: result.provider, model: result.model, verified: result.verified, costOg: result.costOg }, status: "draft" as const };
+  return { config, assumptions: output.assumptions as string[], unsupportedRequirements: output.unsupportedRequirements as string[], requiresClarification: output.unsupportedRequirements.length > 0, proof: { mode: brain.mode, chatId: result.chatId, provider: result.provider, model: result.model, verified: result.verified, costOg: Number.isFinite(result.costOg) ? result.costOg : null, verificationSource: result.verificationSource ?? "direct-sdk", billing: result.billing ?? null }, status: "draft" as const };
 }

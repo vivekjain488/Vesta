@@ -16,6 +16,8 @@ export interface ChatMessage {
 
 export interface BrainResult {
   content: string;
+  verificationSource?: "0g-router";
+  billing?: Record<string, unknown> | null;
   chatId: string;
   model: string;
   provider: string;
@@ -27,6 +29,7 @@ export interface BrainResult {
 
 export interface Brain {
   readonly mode: "live" | "sim";
+  readonly fundingMode?: "router";
   ledgerOg(): Promise<number>;
   depositOg(amount: number): Promise<string>;
   think(policy: TierPolicy, messages: ChatMessage[], maxTokens?: number): Promise<BrainResult | null>;

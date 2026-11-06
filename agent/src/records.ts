@@ -28,7 +28,7 @@ export class Records {
         status: a.status,
         tier: a.tier,
         risk_tier: a.riskTier,
-        runway_h: dec(Number.isFinite(a.runwayH) ? a.runwayH.toFixed(2) : "99999"),
+        runway_h: dec(Number.isNaN(a.runwayH) ? "-1" : Number.isFinite(a.runwayH) ? a.runwayH.toFixed(2) : "99999"), // -1 means unknown Router runway
         cushion: dec(usd(a.mandate.C)),
         floor: dec(usd(a.mandate.F)),
         exposure: dec(usd(a.mandate.E)),

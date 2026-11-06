@@ -76,7 +76,11 @@ export function loadConfig() {
     },
 
     zeroG: {
-      mode: env("ZG_MODE", "sim") as "live" | "sim",
+      mode: env("ZG_MODE", "sim") as "live" | "sim" | "router",
+      apiKey: process.env.ZG_API_KEY ?? "",
+      baseUrl: env("ZG_BASE_URL", "https://router-api.0g.ai/v1"),
+      modelSmall: env("ZG_MODEL_SMALL", "0gm-1.0-35b-a3b"),
+      modelLarge: env("ZG_MODEL_LARGE", "glm-5.2"),
       rpc: env("ZG_RPC_URL", "https://evmrpc-testnet.0g.ai"),
       privateKey: (process.env.ZG_PRIVATE_KEY ?? process.env.PROPOSER_PRIVATE_KEY) as Hex,
       providerLarge: process.env.ZG_PROVIDER_LARGE ?? "",
