@@ -6,6 +6,11 @@ The initial pinned commit is [e17474286275730fb6b0490b1d7ea1c64a36ed9e](https://
 
 Records include the source filename and the snapshot's exact Git commit, canonical SHA-256 source digest and MIT license. The importer validates filenames against numeric chain IDs, positive safe integers, duplicate IDs, required fields and an expected minimum corpus size. A malformed source aborts publication instead of silently skipping chains. Long names/URLs remain complete in payloads; only searchable string fields are bounded to Arkiv's 128-byte limit.
 
+### Rabdi Explorer Ethereum mirrored data:
+```
+https://rabdi.explorer.arkiv.network/entity-explorer?q=arkiv.schema+=+str(%27ethereum-registry.chain.v1%27)+AND+$creator+=+addr(0x0f531Abb28A54435a5848AA70deF32040E2A2e65)&pageSize=100
+```
+
 ## Freshness and refresh
 
 The local macOS scheduler runs an upstream refresh every 24 hours. [.github/workflows/registry-import.yml](../.github/workflows/registry-import.yml) supplies an optional daily/manual CI job; CI requires its own secrets and must not race the local writer. Re-run `pnpm registry:import` manually. A crashed run resumes its pinned source and signed transactions before taking a newer source revision.
@@ -39,5 +44,6 @@ pnpm registry:query chain 16602
 pnpm registry:query resolve 16602
 pnpm --filter @perpetua/core test
 ```
+
 
 The importer writes `.perpetua/registry-live-verification.json` only after successful publication. It contains exact confirmed counts, gas/transaction evidence and sample entity keys. The reader verifies each payload's canonical hash and indexed identity before returning it. Tests cover normalization, duplicates, Unicode/long URLs, private addresses, key templates, pagination constraints, wrong-chain failover, stale data, local-chain collision and RPC selection/provenance. The mirror does not verify that every registered chain still exists or every endpoint has honest state; it preserves source status and makes validation scope explicit.
