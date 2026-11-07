@@ -13,6 +13,7 @@ import {AgentRegistry} from "../src/AgentRegistry.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {MockLending} from "../src/mocks/MockLending.sol";
 import {MockCCIPRouter} from "../src/mocks/MockCCIPRouter.sol";
+import {AaveV3Adapter} from "../src/adapters/AaveV3Adapter.sol";
 import {MockSwapAdapter} from "../src/mocks/MockSwapAdapter.sol";
 
 /// @notice Deploys the full Perpetua stack.
@@ -48,8 +49,12 @@ contract Deploy is Script {
         address ccipRouter;
         address safeLeg;
         address swap;
+        address aavePool;
+        address aaveAToken;
         uint64 localSelector = uint64(vm.envOr("LOCAL_CHAIN_SELECTOR", uint256(16015286601757825753)));
-        uint64 ogSelector = uint64(vm.envOr("OG_CHAIN_SELECTOR", uint256(2131427466778448014)));
+        uint256 configuredSelector = local ? vm.envOr("OG_CHAIN_SELECTOR", uint256(2131427466778448014)) : vm.envUint("OG_CHAIN_SELECTOR");
+        require(configuredSelector <= type(uint64).max, "selector overflow");
+        uint64 ogSelector = uint64(configuredSelector);
 
         if (local) {
             usdc = address(new MockERC20("USD Coin", "USDC", 6));
@@ -73,7 +78,9 @@ contract Deploy is Script {
             link = vm.envAddress("LINK_ADDRESS");
             zeroG = vm.envAddress("ZEROG_CCT_ADDRESS");
             ccipRouter = vm.envAddress("CCIP_ROUTER_ADDRESS");
-            safeLeg = vm.envAddress("SAFE_LEG_ADDRESS");
+            aavePool = vm.envAddress("AAVE_POOL_ADDRESS");
+            aaveAToken = vm.envAddress("AAVE_ATOKEN_ADDRESS");
+            require(aavePool.code.length > 0 && aaveAToken.code.length > 0, "Aave contracts missing");
             swap = vm.envAddress("SWAP_ADAPTER_ADDRESS");
         }
 
@@ -110,7 +117,7 @@ contract Deploy is Script {
             RiskGate gate =
                 new RiskGate(address(vault), address(wallet), specs[i].eMax, specs[i].tier, proposer, priceSigner, deployer);
             wallet.wire(address(vault), address(gate), proposer, flashSpender);
-            address legForVault = safeLeg;
+            address legForVault = local ? safeLeg : address(new AaveV3Adapter(aavePool, usdc, aaveAToken, address(vault)));
             vault.wire(legForVault, address(gate), address(wallet), address(router));
             gate.setAsset(link, true, 500);
             gate.setTeeSigner(teeSigner, true);
@@ -128,6 +135,7 @@ contract Deploy is Script {
             string memory k = specs[i].name;
             vm.serializeAddress(k, "vault", address(vault));
             vm.serializeAddress(k, "wallet", address(wallet));
+            vm.serializeAddress(k, "safeLeg", legForVault);
             vm.serializeBytes32(k, "agentId", agentId);
             string memory agentJson = vm.serializeAddress(k, "riskGate", address(gate));
             json = vm.serializeString("deploy", specs[i].name, agentJson);

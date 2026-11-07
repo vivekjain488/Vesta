@@ -38,15 +38,32 @@ export class Platform {
       history: journal?.reservations ?? [],
     };
   }
+  // Public RPCs commonly limit eth_getLogs ranges; never scan a public chain from genesis.
+  private async events(address: Address, abi: any, options: { eventName?: string; args?: any } = {}): Promise<any[]> {
+    const chainId = await this.pub.getChainId();
+    const configured = this.deployment().startBlock ?? process.env.VAULT_DEPLOYMENT_START_BLOCK;
+    if (chainId !== 31337 && configured === undefined) throw new Error("Public deployment requires a startBlock for event history");
+    if (configured !== undefined && !/^\d+$/.test(String(configured))) throw new Error("Invalid deployment startBlock");
+    const start = configured === undefined ? 0n : BigInt(configured);
+    const latest = await this.pub.getBlockNumber({ cacheTime: 0 });
+    if (start > latest) throw new Error("Deployment startBlock is ahead of the RPC head");
+    const result: any[] = [];
+    const chunk = chainId === 31337 ? 100_000n : 1_000n;
+    for (let fromBlock = start; fromBlock <= latest; fromBlock += chunk) {
+      const toBlock = fromBlock + chunk - 1n < latest ? fromBlock + chunk - 1n : latest;
+      result.push(...await this.pub.getContractEvents({ address, abi, ...options, fromBlock, toBlock } as any));
+    }
+    return result;
+  }
   async history(id: string) {
     const a = this.agent(id);
-    const logs = (await Promise.all([[a.vault, perpetuaVaultAbi], [a.wallet, agentWalletAbi], [a.riskGate, riskGateAbi]].map(([address, abi]) => this.pub.getContractEvents({ address: address as Address, abi: abi as any, fromBlock: 0n })))).flat();
+    const logs = (await Promise.all([[a.vault, perpetuaVaultAbi], [a.wallet, agentWalletAbi], [a.riskGate, riskGateAbi]].map(([address, abi]) => this.events(address as Address, abi)))).flat();
     const names = new Set(["Deposit", "Withdraw", "IncomeRecorded", "WalletFunded", "WalletPulled", "Harvested", "OrderApproved", "WithdrawalSleep", "Returned"]);
     const rows: any[] = logs.filter((l: any) => names.has(l.eventName)).map((l: any) => ({ id: `${l.transactionHash}:${l.logIndex}`, type: l.eventName, transactionHash: l.transactionHash, blockNumber: l.blockNumber, logIndex: l.logIndex, args: l.args }));
     const dep = this.deployment();
     const tokens = [{ address: dep.usdc, symbol: "USDC", decimals: 6 }, ...(a.assets ?? [{ address: dep.link, symbol: "LINK", decimals: 18 }])];
     for (const token of tokens) {
-      const transfers = (await Promise.all(["from", "to"].map((side) => this.pub.getContractEvents({ address: token.address, abi: erc20Abi, eventName: "Transfer", args: { [side]: a.wallet }, fromBlock: 0n })))).flat();
+      const transfers = (await Promise.all(["from", "to"].map((side) => this.events(token.address, erc20Abi, { eventName: "Transfer", args: { [side]: a.wallet } })))).flat();
       for (const l of transfers) rows.push({ id: `${l.transactionHash}:${l.logIndex}`, type: l.args.to?.toLowerCase() === a.wallet.toLowerCase() ? "AssetReceived" : "AssetSent", transactionHash: l.transactionHash, blockNumber: l.blockNumber, logIndex: l.logIndex, args: { amount: l.args.value, symbol: token.symbol, decimals: token.decimals } });
     }
     return json([...new Map(rows.map((r) => [r.id, r])).values()].sort((a, b) => Number(b.blockNumber - a.blockNumber) || b.logIndex - a.logIndex));
@@ -58,13 +75,14 @@ export class Platform {
       read(a.riskGate, riskGateAbi, "hibernating"), read(a.riskGate, riskGateAbi, "withdrawalPaused"), read(a.riskGate, riskGateAbi, "tradingOff"),
       read(a.vault, perpetuaVaultAbi, "computeReserve"), read(a.vault, perpetuaVaultAbi, "piBps"), read(a.vault, perpetuaVaultAbi, "totalHarvested"), read(a.vault, perpetuaVaultAbi, "harvestableIncome"),
     ]) as any[];
-    const flows = await this.pub.getContractEvents({ address: a.vault, abi: perpetuaVaultAbi, fromBlock: 0n });
-    const deposits = flows.filter((l) => l.eventName === "Deposit").reduce((sum, l: any) => sum + l.args.assets, 0n);
-    const withdrawals = flows.filter((l) => l.eventName === "Withdraw").reduce((sum, l: any) => sum + l.args.assets, 0n);
+    const flows = await this.events(a.vault, perpetuaVaultAbi);
+    const deposits = flows.filter((l) => l.eventName === "Deposit").reduce((sum: bigint, l: any) => sum + BigInt(l.args.assets), 0n) as bigint;
+    const withdrawals = flows.filter((l) => l.eventName === "Withdraw").reduce((sum: bigint, l: any) => sum + BigInt(l.args.assets), 0n) as bigint;
     const usd = (n: bigint) => Number(n) / 1e6;
     const runtime = this.stateOf(a.id);
-    const profit = usd(V + withdrawals - deposits);
-    return { id: a.id, name: a.name, owner: getAddress(owner), strategy: a.strategy ?? "Managed strategy", riskTier: a.riskTier ?? "balanced", profit, deposited: usd(deposits), withdrawn: usd(withdrawals), status: withdrawalPaused || runtime?.sleeping ? "sleeping" : V === 0n ? "awaiting_funding" : "active",
+    const profit = usd(BigInt(V) + withdrawals - deposits);
+    const executionEnabled = this.deployment().executionEnabled !== false;
+    return { id: a.id, name: a.name, owner: getAddress(owner), strategy: a.strategy ?? "Managed strategy", riskTier: a.riskTier ?? "balanced", profit, deposited: usd(deposits), withdrawn: usd(withdrawals), status: withdrawalPaused || runtime?.sleeping ? "sleeping" : V === 0n ? "awaiting_funding" : !executionEnabled ? "inactive" : "active",
       chain: { V: usd(V), principal: usd(principal), F: usd(BigInt(principal) * BigInt(piBps) / 10000n + BigInt(reserve)), C: Math.max(0, usd(BigInt(V) - (BigInt(principal) * BigInt(piBps) / 10000n + BigInt(reserve)))), E: usd(mandate[6]), riskyValue: usd(mandate[7]), epoch: Number(mandate[0]), validUntil: Number(mandate[2]), hibernating, withdrawalPaused, tradingOff, reserve: usd(reserve), piBps: Number(piBps), harvested: usd(harvested), harvestable: usd(harvestable) },
       runtime: runtime ? { ...runtime, signals: Object.values(runtime.signals ?? {}), trades: Object.values(runtime.trades ?? {}) } : null };
   }

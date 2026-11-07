@@ -42,6 +42,7 @@ contract AgentWallet is IERC1271, IAgentWallet, Ownable {
 
     error OnlyVault();
     error OnlyRiskGate();
+    error FlashSpenderNotConfigured();
 
     constructor(address owner_) Ownable(owner_) {}
 
@@ -95,6 +96,7 @@ contract AgentWallet is IERC1271, IAgentWallet, Ownable {
 
     function grantFlashAllowance(address token, uint256 amount, uint256 cap) external {
         if (msg.sender != riskGate) revert OnlyRiskGate();
+        if (flashSpender == address(0)) revert FlashSpenderNotConfigured();
         uint256 current = IERC20(token).allowance(address(this), flashSpender);
         uint256 next = current + amount;
         if (next > cap) next = cap;
@@ -104,6 +106,7 @@ contract AgentWallet is IERC1271, IAgentWallet, Ownable {
 
     function revokeFlashAllowance(address token) external {
         if (msg.sender != riskGate) revert OnlyRiskGate();
+        if (flashSpender == address(0)) return;
         IERC20(token).forceApprove(flashSpender, 0);
         emit AllowanceSet(token, 0);
     }

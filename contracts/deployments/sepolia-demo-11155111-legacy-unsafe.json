@@ -1,0 +1,35 @@
+{
+  "Atlas": {
+    "agentId": "0x3c2f3117cb7ce8fb13f9b40ae62eb87f02e1c4810729d073fc8f6520ebf84a25",
+    "platformAgent": true,
+    "riskGate": "0xa92b376528f1777fAE002000D0cF12DEEAEaE671",
+    "safeLeg": "0x34963E6694537b2aCDe8D708f2AE05356fC831c2",
+    "vault": "0x192168a70d8cD3845f69D23770df312374d80B41",
+    "wallet": "0xE8e0A7Fe77d04155Fe8eb1adf057920F4E6F5f5F"
+  },
+  "Ember": {
+    "agentId": "0x590a3c255358d887affee145d3678f9b75ade73510e39b2b40aefc0ece2fd9bc",
+    "platformAgent": true,
+    "riskGate": "0xf6ff78929B3c91d1E05356bcc3b399c6e7D62baB",
+    "safeLeg": "0x34963E6694537b2aCDe8D708f2AE05356fC831c2",
+    "vault": "0xA02A2130C18790B7F7bD775D1a32cFA3483d5993",
+    "wallet": "0x87C6C624832536BF6881bEcf2173735A80919260"
+  },
+  "Halcyon": {
+    "agentId": "0xe52dfc5ac6ce77473813031516c0f82312a56a99576b69f0f018b1489d2311f2",
+    "platformAgent": true,
+    "riskGate": "0xb4Bc5C72cB6d332FbCbd35023bA2Dc564bc7d0b9",
+    "safeLeg": "0x34963E6694537b2aCDe8D708f2AE05356fC831c2",
+    "vault": "0x6883ceC66Aa80B99fb4C5e796E3f24B0503666FC",
+    "wallet": "0x2ABD41c31Bc41EB5cEd6F488e23a47bC5B6951fb"
+  },
+  "ccipRouter": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+  "executionEnabled": false,
+  "harvestRouter": "0xf0AeeaC5fDa3654F15B4F6AfD1E765609869D66B",
+  "link": "0x779877A7B0D9E8603169DdbD7836e478b4624789",
+  "owner": "0xeC8e8d6459423230AeE6195289E6238a20728324",
+  "registry": "0x7c350A7f9F48dD1C562BcC228999d6F0251Ee9ef",
+  "safeLeg": "0x34963E6694537b2aCDe8D708f2AE05356fC831c2",
+  "startBlock": 12080061,
+  "usdc": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+}

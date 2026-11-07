@@ -3,8 +3,21 @@ pragma solidity ^0.8.24;
 
 import {BaseTest} from "./Base.t.sol";
 import {RiskGate} from "../src/RiskGate.sol";
+import {AgentWallet} from "../src/AgentWallet.sol";
 
 contract WithdrawalTest is BaseTest {
+    function test_ownerCanWithdrawWithFlashSpenderDisabled() public {
+        vm.prank(owner);
+        wallet.setFlashSpender(address(0));
+        uint256 shares = vault.balanceOf(alice);
+        vm.prank(alice);
+        vault.redeem(shares, alice, alice);
+        assertEq(vault.balanceOf(alice), 0);
+        assertTrue(gate.withdrawalPaused());
+        vm.prank(address(gate));
+        vm.expectRevert(AgentWallet.FlashSpenderNotConfigured.selector);
+        wallet.grantFlashAllowance(address(usdc), 1, 1);
+    }
     function setUp() public override {
         super.setUp();
         vm.prank(owner);

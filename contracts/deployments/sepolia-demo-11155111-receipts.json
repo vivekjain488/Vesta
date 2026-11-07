@@ -1,0 +1,153 @@
+{
+  "chainId": 11155111,
+  "description": "Corrected test-only Sepolia deployment; execution and bridge disabled.",
+  "receipts": [
+    {
+      "transactionHash": "0x493268b394cc2d0dea5385768f02913bc646ceb0b386235a26c96098f0c5dacd",
+      "blockNumber": 12080424,
+      "status": "0x1",
+      "gasUsed": "3664115",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0xc4d84b64c0744744948ff172d0b1218c9dd4e4843bf70c2cdcb4c21668eb6f96",
+      "blockNumber": 12080425,
+      "status": "0x1",
+      "gasUsed": "6343323",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0xd3cfa0b04e2172b36d42e3635cb7c3fdcd509f5861fe1609775e45f0fc46bd47",
+      "blockNumber": 12080426,
+      "status": "0x1",
+      "gasUsed": "6146170",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x3daf24dbbd6aa24416bee9af7e38afc9ee6003e5e30d9c7323575f5c2b21c218",
+      "blockNumber": 12080427,
+      "status": "0x1",
+      "gasUsed": "20790890",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x08f30f7be6bdb076c247be6c0a2d6fc9836a4850b8dacb04e268bb9230daa83b",
+      "blockNumber": 12080428,
+      "status": "0x1",
+      "gasUsed": "6575080",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x7c6822ae91eb1e969b20b49c7fed33f4189e5c827fba89c92c79e2aa6a46d04c",
+      "blockNumber": 12080429,
+      "status": "0x1",
+      "gasUsed": "34926808",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x83394839fab25fa209d18430abcbbb0dfcbb60381a9ebdd328ef1e5f62a349a2",
+      "blockNumber": 12080430,
+      "status": "0x1",
+      "gasUsed": "353431",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x7738bf140bda47562dbab9c45cb28ca5e07b2d438a9ff3a473f8eaeb0383bf1d",
+      "blockNumber": 12080431,
+      "status": "0x1",
+      "gasUsed": "590936",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x6cf5631a74b7d965bbf5981f47f6b8e619775cccaedfde2fd84792a758802902",
+      "blockNumber": 12080432,
+      "status": "0x1",
+      "gasUsed": "1354529",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x3759a5adf309d6c33dd12279af1c0d9119b9b20fbfa98306bc6ee4a5f49abdf1",
+      "blockNumber": 12080433,
+      "status": "0x1",
+      "gasUsed": "20790938",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x7c462d463f299ca645bad957050b99040d1ce305b01a660640637db9b48184cf",
+      "blockNumber": 12080434,
+      "status": "0x1",
+      "gasUsed": "6575080",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0xd9088ea30c90a3868030700c64c9f22a73505b192e22d98328103cd50d87162f",
+      "blockNumber": 12080435,
+      "status": "0x1",
+      "gasUsed": "34926820",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x7a9bd12fc2ede9dc94ed141750d1c44aeca1eec24cf72f2a96d9e057af661d30",
+      "blockNumber": 12080436,
+      "status": "0x1",
+      "gasUsed": "353443",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0xdd2c0d236ffddbe34be8a6e94ac862e141f3db979965b718daf23fd3b3c107c8",
+      "blockNumber": 12080437,
+      "status": "0x1",
+      "gasUsed": "590936",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x7e45cde682e96951ee2e608505c237f100e15b6e08597832aff31e588f791cf1",
+      "blockNumber": 12080438,
+      "status": "0x1",
+      "gasUsed": "1256645",
+      "effectiveGasPrice": "75000017"
+    },
+    {
+      "transactionHash": "0x4fb0a962337fdb6bf761d60ffecda17eb094dacb3d6ae54cf5e8b2e952a49e4c",
+      "blockNumber": 12080439,
+      "status": "0x1",
+      "gasUsed": "20790890",
+      "effectiveGasPrice": "75000018"
+    },
+    {
+      "transactionHash": "0x6f5548869f10901beb3bb1716c14cf93287fb00c766c6d1fc63894fc3c6cd80a",
+      "blockNumber": 12080440,
+      "status": "0x1",
+      "gasUsed": "6575080",
+      "effectiveGasPrice": "75000019"
+    },
+    {
+      "transactionHash": "0xf2d2c1905cd83af46dab5c544aefb8913e137349ee6798e09b55fcbfa96e7291",
+      "blockNumber": 12080441,
+      "status": "0x1",
+      "gasUsed": "34926820",
+      "effectiveGasPrice": "75000020"
+    },
+    {
+      "transactionHash": "0x54ef905303fbbb6d7600020ed928e0a231c5ebb663670d18ad0f71176e49ec27",
+      "blockNumber": 12080442,
+      "status": "0x1",
+      "gasUsed": "353431",
+      "effectiveGasPrice": "75000021"
+    },
+    {
+      "transactionHash": "0x6a717d92e12a37af62d68aa5ac946ab2b7988532edfb4b9cd2b298dd4c6fef9c",
+      "blockNumber": 12080443,
+      "status": "0x1",
+      "gasUsed": "590924",
+      "effectiveGasPrice": "75000022"
+    },
+    {
+      "transactionHash": "0x4dfdfe1a72cf3099675717892f997a85eb8595d714e269c0bd1cb38450e9e03c",
+      "blockNumber": 12080444,
+      "status": "0x1",
+      "gasUsed": "1256609",
+      "effectiveGasPrice": "75000023"
+    }
+  ]
+}
