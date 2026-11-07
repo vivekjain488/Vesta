@@ -16,8 +16,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AnimatedNumber, scrollToId } from "@/components/motion";
 import { EmptyState, ErrorNote, Hash, Micro, PageHeader } from "@/components/ui-perpetua";
 import { cn } from "@/lib/utils";
+import { API } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 async function read(path: string) { const response = await fetch(`${API}/registry${path}`, { credentials: "omit", cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data.error ?? "Registry query failed"); return data; }
 type Chain = { entityKey: string; chainId: number; name: string; networkType: string; status: string; nativeSymbol: string; rpcCount: number; publicHttpsCount: number; sourcePath: string };
 async function checkRpcs(chainId: number, snapshot: string, hashes: string[]) {

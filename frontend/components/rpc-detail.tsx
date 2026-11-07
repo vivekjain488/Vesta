@@ -7,8 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AVAILABILITY_TIP, LATENCY_TIP, SHADE, availabilityShade, errorBreakdown, headShade, httpShade, lagShade, latencyShade, rateLimitHint, timeAgo, windowStats, type RpcSample } from "@/lib/rpc-metrics";
 import { cn } from "@/lib/utils";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+import { API } from "@/lib/api";
 
 export type RpcInspection = {
   at: number;
