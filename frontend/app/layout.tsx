@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Geist, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { AppShell } from "@/components/AppShell";
 import { RevealRoot } from "@/components/Reveal";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,9 +9,9 @@ import { cn } from "@/lib/utils";
 import "./globals.css";
 
 /** Geist for UI and money, Bricolage Grotesque for display titles, JetBrains Mono for micro labels and hashes. */
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-const serif = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-serif", display: "swap" });
-const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono-face" });
+const geist = localFont({ src: "./fonts/geist.ttf", weight: "100 900", variable: "--font-geist", display: "swap" });
+const serif = localFont({ src: "./fonts/bricolage-grotesque.ttf", weight: "200 800", variable: "--font-serif", display: "swap" });
+const mono = localFont({ src: "./fonts/jetbrains-mono.ttf", weight: "100 800", variable: "--font-mono-face", display: "swap" });
 
 export const metadata: Metadata = {
   title: "VESTA",
