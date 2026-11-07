@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,50 @@ const CREATE_STEPS: FlowStep[] = [
   { label: "Deploy", match: /^Creating your agent contracts/, title: "Deploying agent contracts" },
   { label: "Open", match: /(?!)/, title: "Opening your agent" },
 ];
+
+/** Assets with a public price feed (the same list the dashboard chart supports). */
+const ASSET_OPTIONS = [
+  { symbol: "BTC", name: "Bitcoin" },
+  { symbol: "ETH", name: "Ethereum" },
+  { symbol: "LINK", name: "Chainlink" },
+  { symbol: "SOL", name: "Solana" },
+] as const;
+const MAX_ASSETS = 5;
+
+/** Pick the assets an agent may trade. At least one is required; custom symbols from the advanced JSON stay selectable. */
+function AssetPicker({ symbols, onChange }: { symbols: string[]; onChange: (next: string[]) => void }) {
+  const known: string[] = ASSET_OPTIONS.map((a) => a.symbol);
+  const options = [...ASSET_OPTIONS, ...symbols.filter((s) => !known.includes(s)).map((s) => ({ symbol: s, name: "Custom" }))];
+  const toggle = (symbol: string, on: boolean) => {
+    if (on && symbols.length >= MAX_ASSETS) return;
+    if (!on && symbols.length <= 1) return;
+    // Keep a stable order: the options order, not the order of clicking.
+    const next = on ? [...symbols, symbol] : symbols.filter((s) => s !== symbol);
+    onChange(options.map((o) => o.symbol).filter((s) => next.includes(s)));
+  };
+  return (
+    <fieldset className="space-y-2 border-0 p-0">
+      <legend className="mb-1.5 flex w-full items-center justify-between text-sm font-medium">
+        Assets <span className="text-xs font-normal text-muted-foreground">{symbols.length} selected · choose 1–{MAX_ASSETS}</span>
+      </legend>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {options.map((o) => {
+          const on = symbols.includes(o.symbol);
+          const locked = (on && symbols.length <= 1) || (!on && symbols.length >= MAX_ASSETS);
+          return (
+            <label key={o.symbol} htmlFor={`asset-${o.symbol}`} className={cn("flex cursor-pointer items-center gap-3 rounded-2xl p-3 transition-colors duration-150", on ? "bg-foreground text-background" : "bg-muted hover:bg-hover", locked && !on && "cursor-not-allowed opacity-50")}>
+              <Checkbox id={`asset-${o.symbol}`} checked={on} disabled={locked && !on} onCheckedChange={(v) => toggle(o.symbol, v === true)} className={cn("size-5 rounded-md", on && "border-background bg-background text-foreground")} />
+              <span className="min-w-0 leading-tight">
+                <span className="block text-sm font-semibold">{o.symbol}</span>
+                <span className={cn("block truncate text-xs", on ? "text-background/60" : "text-muted-foreground")}>{o.name}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
 
 /** The reference's "- value +" field; the value stays directly editable. */
 function NumberField({ id, label, value, step, min, max, onChange }: { id: string; label: string; value: number; step: number; min?: number; max?: number; onChange: (n: number) => void }) {
@@ -153,9 +198,8 @@ export default function Studio() {
           </CardHeader>
           <CardContent className="space-y-2.5">
             <fieldset disabled={!!savedId} className="space-y-2.5 border-0 p-0">
-            <div className="space-y-1.5 pb-1">
-              <Label htmlFor="assets">Assets</Label>
-              <Input id="assets" value={config.symbols.join(", ")} onChange={(e) => edit((c) => { c.symbols = e.target.value.toUpperCase().split(",").map((s) => s.trim()); })} />
+            <div className="pb-2">
+              <AssetPicker symbols={config.symbols} onChange={(next) => edit((c) => { c.symbols = next; })} />
             </div>
             <NumberField id="max-exposure" label="Maximum proposal (USDC)" value={config.risk.maxNotionalUsd} step={50} min={1} onChange={(n) => edit((c) => { c.risk.maxNotionalUsd = n; })} />
             <NumberField id="risk-per-trade" label="Risk per trade (%)" value={config.risk.riskPerTradePct} step={0.05} min={0.01} max={1} onChange={(n) => edit((c) => { c.risk.riskPerTradePct = n; })} />

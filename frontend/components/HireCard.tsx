@@ -23,13 +23,19 @@ export function HireCard({ agent }: { agent: string }) {
   const [token, setToken] = useState("USDC");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false); // not listed for hire: the card stays hidden instead of showing an error
 
   const load = useCallback(async () => {
     const d = await body(await apiFetch("/v1/hire/agents"));
     setInfo({ chainId: d.chainId, tokens: d.tokens, row: d.agents.find((r: Row) => r.agentId === agent) ?? null });
   }, [agent]);
   useEffect(() => { load().catch((e) => setError((e as Error).message)); }, [load]);
-  useEffect(() => { setQuote(null); apiFetch(`/v1/hire/quote?agent=${agent}&token=${token}`).then(body).then(setQuote).catch((e) => setError((e as Error).message)); }, [agent, token]);
+  useEffect(() => {
+    setQuote(null);
+    apiFetch(`/v1/hire/quote?agent=${agent}&token=${token}`).then(body).then(setQuote).catch((e) => {
+      if (/not available for hire/i.test((e as Error).message)) setUnavailable(true); else setError((e as Error).message);
+    });
+  }, [agent, token]);
 
   const hiredUntil = info?.row?.hiredUntil ?? 0;
   const hired = hiredUntil * 1000 > Date.now();
@@ -55,6 +61,8 @@ export function HireCard({ agent }: { agent: string }) {
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 
+  // Agents that are not listed for hire (or not known to the hiring service) simply don't get this card.
+  if (unavailable || (info && !info.row)) return null;
   return (
     <Card id="hire">
       <CardHeader>

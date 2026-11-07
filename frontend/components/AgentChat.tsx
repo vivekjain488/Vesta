@@ -31,6 +31,12 @@ const px = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? fmt(n,
 
 function textOf(m: Msg): string {
   if (m.kind === "post") return m.post.text.split("\n")[0];
+  if (m.kind === "trade" && m.t.paper) {
+    const t = m.t;
+    const day = new Date(t.openedAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const how = t.exitReason === "target" ? "hit its target" : t.exitReason === "stop" ? "stopped out" : "timed out";
+    return `Paper replay, ${day}: bought $${fmt(t.sizeUsd)} of ${t.asset} at $${px(t.entry)}; ${how} at $${px(t.exitPrice)}. ${t.pnlUsd >= 0 ? "+" : "−"}$${fmt(Math.abs(t.pnlUsd))} after costs.`;
+  }
   if (m.kind === "trade") {
     const t = m.t;
     const lv = t.embargoed ? "Levels stay hidden for the 15-minute embargo." : `Entry $${px(t.entry)}, stop $${px(t.stop)}, target $${px(t.target)}.`;
@@ -45,13 +51,23 @@ function textOf(m: Msg): string {
 
 function metaLabel(m: Msg) {
   if (m.kind === "signal") return m.s.signal ? "Reasoned on 0G" : "Signal committed";
-  if (m.kind === "trade") return "RiskGate check";
+  if (m.kind === "trade") return m.t.paper ? "Paper trade on real prices" : "RiskGate check";
   return "Agent post";
 }
 
 /** Details that pop in after the message finishes typing (setting chip, approval-style card, proofs). */
 function Extras({ m }: { m: Msg }) {
   if (m.kind === "post") return <ProofChips proof={m.post.proof} />;
+  if (m.kind === "trade" && m.t.paper) {
+    const t = m.t;
+    return (
+      <PopGroup show>
+        <Badge variant="muted" size="micro">Paper replay</Badge>
+        <Badge variant={t.pnlUsd >= 0 ? "profit" : "loss"} className="num">{t.pnlUsd >= 0 ? "+" : "−"}${fmt(Math.abs(t.pnlUsd))}</Badge>
+        {t.settlementTx && <Hash value={t.settlementTx} head={8} tail={4} />}
+      </PopGroup>
+    );
+  }
   if (m.kind === "trade") {
     const t = m.t;
     return (
@@ -142,7 +158,7 @@ export function AgentChat({ agent, loading }: { agent?: DashboardAgent; loading:
     const list: Msg[] = [
       ...feed.posts.map((p) => ({ key: `p:${p.at}:${p.agent}`, kind: "post" as const, at: p.at, post: p })),
       ...((agent.runtime?.signals ?? []) as any[]).map((s) => ({ key: `s:${s.uid}:${s.signal ? "r" : "c"}`, kind: "signal" as const, at: (s.createdAt ?? 0) * 1000, s })),
-      ...((agent.runtime?.trades ?? []) as any[]).map((t) => ({ key: `t:${t.uid}:${t.status}`, kind: "trade" as const, at: (t.openedAt ?? 0) * 1000, t })),
+      ...((agent.runtime?.trades ?? []) as any[]).map((t) => ({ key: `t:${t.uid}:${t.status}`, kind: "trade" as const, at: ((t.paper ? t.closedAt : t.openedAt) ?? 0) * 1000, t })),
     ];
     return list.sort((a, b) => a.at - b.at).slice(-24); // chat order: newest at the bottom
   }, [agent, feed.posts]);

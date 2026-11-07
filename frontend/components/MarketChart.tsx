@@ -38,7 +38,7 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
   }, [symbols]);
   const [symbol, setSymbol] = useState(available[0]);
   const [mode, setMode] = useState<"line" | "candle">("line");
-  const [range, setRange] = useState<"LIVE" | HistoryRange>("LIVE");
+  const [range, setRange] = useState<"LIVE" | HistoryRange>("1M");
   const [history, setHistory] = useState<{ source: string; fetchedAt: number } | null>(null);
   const [windowSecs, setWindowSecs] = useState(300);
   const [points, setPoints] = useState<LivelinePoint[]>([]);
