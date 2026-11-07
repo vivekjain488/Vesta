@@ -136,6 +136,10 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+  /* Display titles (Bricolage Grotesque is a variable font): semibold by default; weight utilities still override. */
+  .font-display {
+    font-weight: 600;
+  }
 }
 
 /* Faint grid like the reference backdrop. */

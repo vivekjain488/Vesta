@@ -33,23 +33,21 @@ function AgentTile({ a, selected, onSelect }: { a: DashboardAgent; selected: boo
       onClick={onSelect}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect())}
       className={cn(
-        "flex min-h-[200px] w-[210px] shrink-0 flex-col rounded-[24px] p-4 text-left transition-[box-shadow,transform] duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
+        "flex min-h-[210px] w-[220px] shrink-0 flex-col rounded-[24px] p-5 text-left transition-[box-shadow,transform] duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
         featured ? "bg-trade text-foreground" : "bg-muted text-foreground",
         selected && "ring-2 ring-foreground",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-display text-2xl leading-none">{a.name}</p>
-          <Badge variant={featured ? "trade-deep" : "ink"} size="micro" className="mt-2">
-            {featured ? "Open trade" : (a.status ?? "active").replaceAll("_", " ")}
-          </Badge>
-        </div>
+      <p className="line-clamp-2 min-h-[2.1em] font-display text-[1.45rem] leading-[1.05] tracking-tight" title={a.name}>{a.name}</p>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <Badge variant={featured ? "trade-deep" : "ink"} size="micro">
+          {featured ? "Open trade" : (a.status ?? "active").replaceAll("_", " ")}
+        </Badge>
         <Button asChild variant="white" size="xs" className="micro h-6 shrink-0 shadow-[0_0_0_1px_rgba(17,17,17,0.06)]" onClick={(e) => e.stopPropagation()}>
           <Link href={agentHref(a)}>{a.chain ? "View" : "Setup"}</Link>
         </Button>
       </div>
-      <div className="mt-auto pt-6">
+      <div className="mt-auto pt-5">
         {c && <CppiBar V={c.V} F={c.F} C={c.C} E={c.E} zoom={false} className="[&>div:last-child]:hidden" />}
         <Micro className={cn("mt-3 block", featured ? "text-foreground/70" : undefined)}>Profit</Micro>
         <p className="num text-[1.9rem] leading-tight font-semibold tracking-tight">{a.chain ? <AnimatedNumber value={a.profit ?? 0} format={(n) => signedUsd(n)} /> : "—"}</p>
@@ -116,7 +114,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
         </div>
       )}
 
-      <div className="border-t border-border/70 px-6 pt-5">
+      <div className="border-t border-border/70 px-6 pt-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">Your agents</span>
@@ -137,11 +135,11 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div ref={tilesRef} className="-mx-6 mt-3 flex gap-3 overflow-x-auto px-6 pb-1 [scrollbar-width:none]">
+        <div ref={tilesRef} className="-mx-6 mt-2 flex gap-3 overflow-x-auto px-6 py-1.5 pb-3 [scrollbar-width:none]">
           {loading && !agents.length ? (
             <>
-              <Skeleton className="h-[200px] w-[210px] shrink-0 rounded-[24px]" />
-              <Skeleton className="h-[200px] w-[210px] shrink-0 rounded-[24px]" />
+              <Skeleton className="h-[210px] w-[220px] shrink-0 rounded-[24px]" />
+              <Skeleton className="h-[210px] w-[220px] shrink-0 rounded-[24px]" />
             </>
           ) : sorted.length === 0 ? (
             <EmptyState title="No agents yet" className="w-full py-6" action={<Button asChild size="sm"><Link href="/studio">Create an agent</Link></Button>} />
@@ -158,7 +156,7 @@ export function IntelligencePanel({ agent, agents, onSelect, loading, className 
             <Link href="/studio"><Plus /></Link>
           </Button>
           <p className="min-w-0 flex-1 truncate px-1 text-sm text-muted-foreground">
-            {!agent ? "Create your first agent" : !isFunded(agent) ? `Add capital to start ${agent.name}` : `Review ${agent.name}'s investments`}
+            {!agent ? "Create your first agent" : !isFunded(agent) ? `Add capital to start ${agent.name}` : `Review ${agent.name}`}
           </p>
           {agent?.chain && (
             <>

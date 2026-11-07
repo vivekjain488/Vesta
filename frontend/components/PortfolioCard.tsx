@@ -38,14 +38,14 @@ export function PortfolioCard({ agents, loading, className }: { agents: Dashboar
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="font-display text-[2rem] leading-none">Portfolio</h2>
-          <p className="mt-1.5 flex items-center gap-1.5 text-sm text-white/75">
+          <h2 className="font-display text-[2rem] leading-[1.1] tracking-tight">Portfolio</h2>
+          <p className="mt-2 flex items-center gap-1.5 text-sm text-white/75">
             <span className="size-1.5 rounded-full bg-white/80" aria-hidden /> {agents.length} agent{agents.length === 1 ? "" : "s"} · {funded.length} funded
           </p>
         </div>
-        <div className="text-right">
-          <p className="num text-sm font-semibold">{loading ? "—" : `$${fmt(deposited)}`}</p>
-          <p className="text-xs text-white/65">Deposited</p>
+        <div className="shrink-0 pt-1.5 text-right">
+          <p className="num text-sm leading-tight font-semibold">{loading ? "—" : `$${fmt(deposited)}`}</p>
+          <p className="mt-0.5 text-xs text-white/65">Deposited</p>
         </div>
       </div>
 

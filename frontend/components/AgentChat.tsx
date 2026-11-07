@@ -98,8 +98,10 @@ function Extras({ m }: { m: Msg }) {
   );
 }
 
-function Message({ m, typing, onTyped }: { m: Msg; typing: boolean; onTyped: () => void }) {
+function Message({ m, agentName, agentId, typing, onTyped }: { m: Msg; agentName?: string; agentId?: string; typing: boolean; onTyped: () => void }) {
   const [done, setDone] = useState(!typing);
+  // Hosted agents post under their ID; show the name the owner gave them.
+  const text = agentId && agentName ? textOf(m).replaceAll(agentId, agentName) : textOf(m);
   const label = metaLabel(m);
   const reasons: string[] = m.kind === "signal" ? m.s.signal?.reasons ?? [] : [];
   return (
@@ -121,7 +123,7 @@ function Message({ m, typing, onTyped }: { m: Msg; typing: boolean; onTyped: () 
         </p>
       )}
       <p className="text-sm leading-relaxed text-foreground">
-        <StreamText text={textOf(m)} animate={typing} onDone={() => { setDone(true); onTyped(); }} />
+        <StreamText text={text} animate={typing} onDone={() => { setDone(true); onTyped(); }} />
       </p>
       {done && (
         <div className={cn(typing && "pop-in")}>
@@ -145,30 +147,29 @@ export function AgentChat({ agent, loading }: { agent?: DashboardAgent; loading:
     return list.sort((a, b) => a.at - b.at).slice(-24); // chat order: newest at the bottom
   }, [agent, feed.posts]);
 
-  // Which message types out: the latest one when this agent's history first loads, then the newest arrival.
-  // Bookkeeping is idempotent (safe under React's double render), so a message mounts already "typing" and never
-  // flashes its full text first.
-  const seen = useRef<{ agent?: string; keys: Set<string>; ready: boolean; typing: string | null }>({ keys: new Set(), ready: false, typing: null });
-  if (seen.current.agent !== agent?.id) seen.current = { agent: agent?.id, keys: new Set(), ready: false, typing: null };
+  // Typing queue: when this agent's history first loads, the last few messages type out one after another; after that
+  // every new arrival is queued and typed in order. Queued messages stay hidden until their turn. Bookkeeping is
+  // idempotent (safe under React's double render), so a message mounts already "typing" and never flashes its full text.
+  const seen = useRef<{ agent?: string; keys: Set<string>; ready: boolean; queue: string[] }>({ keys: new Set(), ready: false, queue: [] });
+  if (seen.current.agent !== agent?.id) seen.current = { agent: agent?.id, keys: new Set(), ready: false, queue: [] };
   const s = seen.current;
   if (agent && feed.loaded) {
     if (!s.ready) {
       s.ready = true;
       messages.forEach((m) => s.keys.add(m.key));
-      s.typing = messages[messages.length - 1]?.key ?? null;
+      s.queue = messages.slice(-3).map((m) => m.key);
     } else {
       const fresh = messages.filter((m) => !s.keys.has(m.key));
-      if (fresh.length) {
-        fresh.forEach((m) => s.keys.add(m.key));
-        s.typing = fresh[fresh.length - 1].key;
-      }
+      fresh.forEach((m) => { s.keys.add(m.key); s.queue.push(m.key); });
     }
   }
-  const typing = s.typing;
+  s.queue = s.queue.filter((k) => messages.some((m) => m.key === k)); // drop anything that scrolled out of the window
+  const typing = s.queue[0] ?? null;
+  const waiting = new Set(s.queue.slice(1));
   const [, rerender] = useState(0);
   const finished = (key: string) => {
-    if (seen.current.typing === key) {
-      seen.current.typing = null;
+    if (seen.current.queue[0] === key) {
+      seen.current.queue.shift();
       rerender((n) => n + 1);
     }
   };
@@ -200,8 +201,8 @@ export function AgentChat({ agent, loading }: { agent?: DashboardAgent; loading:
         </EmptyState>
       ) : (
         <ol className="space-y-6 pb-5">
-          {messages.map((m) => (
-            <Message key={`${agent?.id}:${m.key}`} m={m} typing={typing === m.key} onTyped={() => finished(m.key)} />
+          {messages.filter((m) => !waiting.has(m.key)).map((m) => (
+            <Message key={`${agent?.id}:${m.key}`} m={m} agentName={agent?.name} agentId={agent?.id} typing={typing === m.key} onTyped={() => finished(m.key)} />
           ))}
         </ol>
       )}

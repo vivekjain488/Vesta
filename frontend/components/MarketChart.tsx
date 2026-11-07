@@ -1,16 +1,14 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { Bar as RBar, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { HISTORY_RANGES, HistoryChart, type HistoryRange } from "@/components/HistoryChart";
+import { Liveline, type LivelinePoint } from "liveline";
 import { donchian, ema, sma } from "@perpetua/core";
 import { CandlestickChart } from "lucide-react";
-import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { EmptyState, Micro } from "@/components/ui-perpetua";
 import { fmt } from "@/lib/data";
-import { binanceStreamUrl, fetchCandles4h, supportedSymbol, type MarketSeries } from "@/lib/market";
-import { reducedMotion } from "@/lib/gsap";
+import { binanceLiveUrl, fetchCandles4h, fetchKrakenPrice, fetchMinuteCandles, supportedSymbol, type MinuteCandle } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
 export interface TradeLevels {
@@ -19,196 +17,174 @@ export interface TradeLevels {
   target?: number | null;
 }
 
-const config = {
-  ema: { label: "EMA 20", color: "var(--brand)" },
-  sma: { label: "MA 50", color: "var(--trade)" },
-} satisfies ChartConfig;
+const WINDOWS = [
+  { label: "1m", secs: 60 },
+  { label: "5m", secs: 300 },
+  { label: "15m", secs: 900 },
+  { label: "1h", secs: 3600 },
+];
+const MAX_POINTS = 6000;
+const FLUSH_MS = 400; // batch trades so React renders a few times a second; Liveline interpolates in between
+const priceDigits = (p: number) => (p >= 1000 ? 1 : p >= 100 ? 2 : p >= 1 ? 3 : 4);
 
-const RANGES = { "5D": 30, "10D": 60, "15D": 90 } as const;
-const priceDigits = (p: number) => (p >= 1000 ? 0 : p >= 100 ? 1 : p >= 1 ? 2 : 4);
+type Status = "loading" | "live" | "polling" | "error";
+interface Indicators { ema20: number; ma50: number; rangeLo: number; rangeHi: number }
 
-/** Candles drawn inside the [low, high] range bar recharts hands us. */
-function Candle(props: any) {
-  const { x, y, width, height, payload, index = 0 } = props;
-  if (!payload || !Number.isFinite(height)) return null;
-  const { o, c, h, l } = payload;
-  const span = h - l || 1;
-  const ppu = height / span;
-  const up = c >= o;
-  const bodyTop = y + (h - Math.max(o, c)) * ppu;
-  const bodyH = Math.max(1, Math.abs(o - c) * ppu);
-  const cx = x + width / 2;
-  const w = Math.max(2, Math.min(width * 0.62, 9));
-  const color = up ? "#111111" : "#C9C9C6";
-  return (
-    <g className="candle-in" style={{ animationDelay: `${Math.min(index * 12, 900)}ms` }}>
-      <line x1={cx} x2={cx} y1={y} y2={y + height} stroke={color} strokeWidth={1.25} />
-      <rect x={cx - w / 2} y={bodyTop} width={w} height={bodyH} rx={1.5} fill={color} />
-    </g>
-  );
-}
-
-/** End-of-line pill, like the reference's "9.190" and "STOP LOSS 8.10". */
-function LevelPill({ viewBox, text, fill, color = "#fff", delay = 0 }: { viewBox?: any; text: string; fill: string; color?: string; delay?: number }) {
-  if (!viewBox) return null;
-  const w = text.length * 6.6 + 18;
-  const x = viewBox.x + viewBox.width - w - 4;
-  const y = viewBox.y - 11;
-  return (
-    <g className="svg-pop" style={{ ["--pop-delay" as string]: `${delay}ms` }}>
-      <rect x={x} y={y} width={w} height={22} rx={11} fill={fill} />
-      <text x={x + w / 2} y={y + 14.5} textAnchor="middle" fontSize={10.5} letterSpacing="0.06em" fill={color} style={{ fontFamily: "var(--font-mono)" }}>
-        {text}
-      </text>
-    </g>
-  );
-}
-
-function CandleTooltip({ active, payload }: any) {
-  if (!active || !payload?.length) return null;
-  const b = payload[0].payload;
-  const d = priceDigits(b.c);
-  return (
-    <div className="rounded-2xl bg-card px-3 py-2 text-xs shadow-[0_8px_24px_-12px_rgba(17,17,17,0.3),0_0_0_1px_rgba(17,17,17,0.05)]">
-      <p className="micro text-muted-foreground">{new Date(b.t * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-      <div className="num mt-1 grid grid-cols-4 gap-x-3">
-        {(["o", "h", "l", "c"] as const).map((k) => (
-          <span key={k}>
-            <span className="text-faint uppercase">{k} </span>
-            {fmt(b[k], d)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
+/** Live price for the agent's asset: one continuous Liveline fed by the exchange trade stream (no re-mounting). */
 export function MarketChart({ symbols, levels, agentName, className }: { symbols: string[]; levels?: TradeLevels | null; agentName?: string; className?: string }) {
   const available = useMemo(() => {
     const list = [...new Set(symbols.map((s) => s.toUpperCase()))].filter(supportedSymbol);
     return list.length ? list : ["LINK"];
   }, [symbols]);
   const [symbol, setSymbol] = useState(available[0]);
-  const [range, setRange] = useState<keyof typeof RANGES>("10D");
-  const [series, setSeries] = useState<MarketSeries | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [streaming, setStreaming] = useState(false);
+  const [mode, setMode] = useState<"line" | "candle">("line");
+  const [range, setRange] = useState<"LIVE" | HistoryRange>("LIVE");
+  const [history, setHistory] = useState<{ source: string; fetchedAt: number } | null>(null);
+  const [windowSecs, setWindowSecs] = useState(300);
+  const [points, setPoints] = useState<LivelinePoint[]>([]);
+  const [value, setValue] = useState(0);
+  const [candles, setCandles] = useState<MinuteCandle[]>([]);
+  const [liveCandle, setLiveCandle] = useState<MinuteCandle | undefined>();
+  const [change, setChange] = useState<number | null>(null);
+  const [source, setSource] = useState<"Binance" | "Kraken" | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [indicators, setIndicators] = useState<Indicators | null>(null);
+  const pending = useRef<LivelinePoint | null>(null);
 
   useEffect(() => {
     if (!available.includes(symbol)) setSymbol(available[0]);
   }, [available, symbol]);
 
+  // Live feed: seed with recent 1m candles, then stream trades. Falls back to polling Kraken if Binance is unreachable.
   useEffect(() => {
     const ctrl = new AbortController();
     let socket: WebSocket | null = null;
-    let lastUpdate = 0;
-    let loading = false;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let lastMessage = Date.now();
     let disposed = false;
+    setPoints([]); setCandles([]); setLiveCandle(undefined); setChange(null); setSource(null); setStatus("loading");
+    pending.current = null;
+
+    const push = (p: LivelinePoint) => { pending.current = p; };
+    const startPolling = () => {
+      if (poll || disposed) return;
+      setStatus("polling");
+      const tick = async () => {
+        try { push({ time: Date.now() / 1000, value: await fetchKrakenPrice(symbol, ctrl.signal) }); } catch { /* keep the last price */ }
+      };
+      void tick(); poll = setInterval(tick, 3000);
+    };
     const connect = () => {
-      const url = binanceStreamUrl(symbol);
-      if (!url || socket || disposed) return;
+      const url = binanceLiveUrl(symbol);
+      if (!url || disposed) return startPolling();
       const ws = new WebSocket(url);
       socket = ws;
       ws.onmessage = (event) => {
         try {
-          const k = JSON.parse(event.data).k;
-          if (!k || k.i !== "4h") return;
-          const bar = { t: Number(k.t) / 1000, o: Number(k.o), h: Number(k.h), l: Number(k.l), c: Number(k.c), v: Number(k.v) };
-          if (!Object.values(bar).every(Number.isFinite)) return;
-          lastUpdate = Date.now();
-          setStreaming(true);
-          setError(null);
-          setSeries((previous) => {
-            if (!previous || previous.source !== "Binance" || bar.t < previous.bars[previous.bars.length - 1].t) return previous;
-            const bars = previous.bars.slice();
-            if (bar.t === bars[bars.length - 1].t) bars[bars.length - 1] = bar;
-            else bars.push(bar);
-            return { ...previous, bars: bars.slice(-140), fetchedAt: lastUpdate };
-          });
-        } catch { /* Ignore malformed exchange messages. */ }
+          const { stream, data } = JSON.parse(event.data);
+          lastMessage = Date.now();
+          if (stream.endsWith("@aggTrade")) {
+            const p = Number(data.p);
+            if (Number.isFinite(p)) push({ time: Number(data.T) / 1000, value: p });
+          } else if (stream.endsWith("@kline_1m")) {
+            const k = data.k;
+            const c = { time: Math.floor(Number(k.t) / 1000), open: +k.o, high: +k.h, low: +k.l, close: +k.c };
+            if (k.x) setCandles((prev) => [...prev.filter((x) => x.time !== c.time), c].slice(-240));
+            else setLiveCandle(c);
+          } else if (stream.endsWith("@miniTicker")) {
+            const o = Number(data.o), c = Number(data.c);
+            if (o > 0 && Number.isFinite(c)) setChange((c - o) / o);
+          }
+          setStatus("live");
+        } catch { /* ignore malformed exchange messages */ }
       };
       ws.onerror = () => ws.close();
-      ws.onclose = () => { if (socket === ws) { socket = null; if (!disposed) setStreaming(false); } };
+      ws.onclose = () => { if (socket === ws) socket = null; };
     };
-    const load = async () => {
-      if (loading) return;
-      loading = true;
+
+    (async () => {
       try {
-        const s = await fetchCandles4h(symbol, 140, ctrl.signal);
+        const seed = await fetchMinuteCandles(symbol, 120, ctrl.signal);
         if (disposed) return;
-        setSeries(s);
-        setError(null);
-        if (s.source === "Binance") connect();
-        else { socket?.close(); socket = null; setStreaming(false); }
+        const now = Date.now() / 1000;
+        const closed = seed.candles.slice(0, -1);
+        const forming = seed.candles[seed.candles.length - 1];
+        setCandles(closed);
+        setLiveCandle(forming);
+        setPoints(seed.candles.map((c) => ({ time: Math.min(c.time + 59, now), value: c.close })));
+        setValue(forming.close);
+        setSource(seed.source);
+        if (seed.source === "Binance") connect(); else startPolling();
       } catch (e) {
-        if (!disposed && (e as Error).name !== "AbortError") setError("Market data unavailable");
-      } finally { loading = false; }
-    };
-    setSeries(null);
-    setError(null);
-    setStreaming(false);
-    void load();
-    const t = setInterval(() => {
-      if (Date.now() - lastUpdate > 15_000) {
-        setStreaming(false);
-        socket?.close();
-        socket = null;
-        void load();
+        if (!disposed && (e as Error).name !== "AbortError") setStatus("error");
       }
-    }, 10_000);
-    return () => {
-      disposed = true;
-      ctrl.abort();
-      clearInterval(t);
-      socket?.close();
-    };
+    })();
+
+    const flush = setInterval(() => {
+      const p = pending.current;
+      if (p) {
+        pending.current = null;
+        setPoints((prev) => (prev.length && p.time <= prev[prev.length - 1].time ? prev : [...prev.slice(-MAX_POINTS), p]));
+        setValue(p.value);
+      }
+      // Stream went quiet: drop to polling so the line keeps moving.
+      if (socket && Date.now() - lastMessage > 20_000) { socket.close(); socket = null; startPolling(); }
+    }, FLUSH_MS);
+
+    return () => { disposed = true; ctrl.abort(); clearInterval(flush); if (poll) clearInterval(poll); socket?.close(); };
   }, [symbol]);
 
-  const view = useMemo(() => {
-    if (!series) return null;
-    const closes = series.bars.map((b) => b.c);
-    const e20 = ema(closes, 20);
-    const s50 = sma(closes, 50);
-    const dc = donchian(series.bars, 20);
-    const rows = series.bars.map((b, i) => ({ ...b, range: [b.l, b.h] as [number, number], ema: Number.isFinite(e20[i]) ? e20[i] : null, sma: Number.isFinite(s50[i]) ? s50[i] : null }));
-    const shown = rows.slice(-RANGES[range]);
-    const last = series.bars[series.bars.length - 1];
-    const dayAgo = series.bars[series.bars.length - 7];
-    const change = dayAgo ? (last.c - dayAgo.c) / dayAgo.c : 0;
-    const lowest = Math.min(...shown.map((r) => r.l));
-    const highest = Math.max(...shown.map((r) => r.h));
-    // Only draw trade levels that are plausible against this live market; otherwise they would squash the candles.
-    const plausible = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v) && v >= lowest * 0.6 && v <= highest * 1.4;
-    const drawn = { entry: plausible(levels?.entry) ? levels!.entry : null, stop: plausible(levels?.stop) ? levels!.stop : null, target: plausible(levels?.target) ? levels!.target : null };
-    const hidden = [levels?.entry, levels?.stop, levels?.target].some((v) => typeof v === "number" && Number.isFinite(v) && !plausible(v));
-    const lvl = [drawn.entry, drawn.stop, drawn.target].filter((v): v is number => v !== null);
-    const lo = Math.min(lowest, ...lvl);
-    const hi = Math.max(highest, ...lvl);
-    const pad = (hi - lo) * 0.08;
-    const maxV = Math.max(...shown.map((r) => r.v));
-    return { shown, last, change, drawn, hidden, domain: [lo - pad, hi + pad] as [number, number], maxV, rangeLo: dc.lower[dc.lower.length - 1], rangeHi: dc.upper[dc.upper.length - 1] };
-  }, [series, range, levels]);
+  // 4h context (EMA 20, MA 50, 20-bar range), refreshed every 5 minutes; shown as figures, not redrawn lines.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setIndicators(null);
+    const load = async () => {
+      try {
+        const s = await fetchCandles4h(symbol, 90, ctrl.signal);
+        const closes = s.bars.map((b) => b.c);
+        const dc = donchian(s.bars, 20);
+        setIndicators({ ema20: ema(closes, 20).at(-1)!, ma50: sma(closes, 50).at(-1)!, rangeLo: dc.lower.at(-1)!, rangeHi: dc.upper.at(-1)! });
+      } catch { /* the pills simply stay hidden */ }
+    };
+    void load();
+    const t = setInterval(load, 300_000);
+    return () => { ctrl.abort(); clearInterval(t); };
+  }, [symbol]);
 
-  const d = view ? priceDigits(view.last.c) : 2;
-  const [motion] = useState(() => !reducedMotion());
+  const d = priceDigits(value || 1);
+  // Only draw the entry if it is plausible against the live price; otherwise it would flatten the line.
+  const entry = levels?.entry && value && Math.abs(levels.entry / value - 1) < 0.25 ? levels.entry : null;
+  const extraLevels = [levels?.stop != null && ["Stop", levels.stop], levels?.target != null && ["Target", levels.target]].filter(Boolean) as [string, number][];
+  // The history chart is memoised on values, so live ticks (several per second) never re-render or re-animate it.
+  const levelsKey = JSON.stringify([levels?.entry ?? null, levels?.stop ?? null, levels?.target ?? null]);
+  const historyChart = useMemo(() => {
+    if (range === "LIVE") return null;
+    const [e, st, t] = JSON.parse(levelsKey) as (number | null)[];
+    return <HistoryChart symbol={symbol} range={range} levels={{ entry: e, stop: st, target: t }} digits={d} onSource={setHistory} />;
+  }, [symbol, range, levelsKey, d]);
+  const live = range === "LIVE";
 
   return (
-    <Card className={cn("gap-0 py-0", className)} aria-label={`${symbol} 4-hour price chart`}>
+    <Card className={cn("gap-0 py-0", className)} aria-label={`${symbol} live price chart`}>
       <div className="flex flex-wrap items-center gap-2 px-5 pt-5 sm:px-6">
         <span className="flex items-center gap-2 rounded-full bg-primary py-1 pr-3.5 pl-1 text-primary-foreground">
           <span className="flex size-6 items-center justify-center rounded-full bg-white/15">
             <CandlestickChart className="size-3.5" />
           </span>
-          <span className="text-sm font-medium">{symbol}/{series?.source === "Binance" ? "USDT" : "USD"}</span>
-          <span className="text-xs text-white/50">| 4H</span>
+          <span className="text-sm font-medium">{symbol}/{source === "Kraken" ? "USD" : "USDT"}</span>
+          <span className="flex items-center gap-1 text-xs text-white/60">
+            <span className={cn("size-1.5 rounded-full", status === "live" ? "bg-profit" : status === "polling" ? "bg-trade" : "bg-white/40")} aria-hidden />
+            {status === "live" ? "Live" : status === "polling" ? "Polling" : status === "error" ? "Offline" : "Connecting"}
+          </span>
         </span>
-        {view && (
+        {value > 0 && (
           <span className="num text-sm">
-            <span className="text-brand-hover">{fmt(view.last.c, d)}</span>
-            <span className={cn("ml-1", view.change < 0 ? "text-loss" : "text-profit")}>
-              {view.change >= 0 ? "+" : "−"}
-              {(Math.abs(view.change) * 100).toFixed(1)}% ~24h
-            </span>
+            <span className="text-brand-hover">{fmt(value, d)}</span>
+            {change !== null && (
+              <span className={cn("ml-1", change < 0 ? "text-loss" : "text-profit")}>
+                {change >= 0 ? "+" : "−"}{(Math.abs(change) * 100).toFixed(2)}% 24h
+              </span>
+            )}
           </span>
         )}
         {available.length > 1 && (
@@ -220,62 +196,79 @@ export function MarketChart({ symbols, levels, agentName, className }: { symbols
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 px-5 pt-3 sm:px-6">
-        <span className="flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-xs"><span className="size-1.5 rounded-full bg-brand" />EMA 20</span>
-        <span className="flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-xs"><span className="size-1.5 rounded-full bg-trade" />MA 50</span>
-        {view && Number.isFinite(view.rangeLo) && <span className="num flex h-7 items-center rounded-full bg-muted px-3 text-xs">Range {fmt(view.rangeLo, d)}–{fmt(view.rangeHi, d)}</span>}
-        <ToggleGroup type="single" size="sm" spacing={1} value={range} onValueChange={(v) => v && setRange(v as keyof typeof RANGES)} className="ml-auto rounded-full bg-muted p-1" aria-label="Time range">
-          {Object.keys(RANGES).map((r) => (
+        <ToggleGroup type="single" size="sm" spacing={1} value={range} onValueChange={(v) => v && setRange(v as "LIVE" | HistoryRange)} className="rounded-full bg-muted p-1" aria-label="Time range">
+          <ToggleGroupItem value="LIVE" className="micro gap-1.5"><span className={cn("size-1.5 rounded-full", status === "live" ? "bg-profit" : "bg-faint")} aria-hidden />Live</ToggleGroupItem>
+          {(Object.keys(HISTORY_RANGES) as HistoryRange[]).map((r) => (
             <ToggleGroupItem key={r} value={r} className="micro">{r}</ToggleGroupItem>
           ))}
         </ToggleGroup>
-      </div>
-
-      <div className="px-2 pt-2 pb-3 sm:px-3">
-        {error && !view ? (
-          <EmptyState className="mx-3 my-4 min-h-[260px]" title="Market data unavailable" icon={<CandlestickChart className="size-4" />}>
-            Public 4h candles for {symbol} could not be loaded. Nothing is shown rather than estimated prices.
-          </EmptyState>
-        ) : !view ? (
-          <Skeleton className="mx-3 my-4 h-[280px] rounded-3xl" />
+        {live ? (
+          <>
+            <ToggleGroup type="single" size="sm" spacing={1} value={String(windowSecs)} onValueChange={(v) => v && setWindowSecs(Number(v))} className="ml-auto rounded-full bg-muted p-1" aria-label="Live window">
+              {WINDOWS.map((w) => (
+                <ToggleGroupItem key={w.secs} value={String(w.secs)} className="micro normal-case">{w.label}</ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            <ToggleGroup type="single" size="sm" spacing={1} value={mode} onValueChange={(v) => { if (!v) return; setMode(v as "line" | "candle"); if (v === "candle" && windowSecs < 900) setWindowSecs(900); }} className="rounded-full bg-muted p-1" aria-label="Chart type">
+              <ToggleGroupItem value="line" className="micro">Line</ToggleGroupItem>
+              <ToggleGroupItem value="candle" className="micro">Candles</ToggleGroupItem>
+            </ToggleGroup>
+          </>
         ) : (
-          <ChartContainer config={config} className="aspect-auto h-[300px] w-full">
-            <ComposedChart data={view.shown} margin={{ top: 16, right: 8, bottom: 0, left: 8 }} barCategoryGap="22%">
-              <XAxis
-                dataKey="t"
-                tickLine={false}
-                axisLine={false}
-                minTickGap={48}
-                tickMargin={10}
-                tick={{ fontSize: 10, fontFamily: "var(--font-mono)", fill: "var(--muted-foreground)", letterSpacing: "0.08em" }}
-                tickFormatter={(t) => new Date(t * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit" }).toUpperCase()}
-              />
-              {/* Separate hidden x-axis so volume and candles overlap instead of being grouped side by side. */}
-              <XAxis xAxisId="vol" dataKey="t" hide />
-              <YAxis yAxisId="price" domain={view.domain} hide />
-              <YAxis yAxisId="vol" domain={[0, view.maxV * 3.5]} hide />
-              <ChartTooltip cursor={{ stroke: "var(--border)", strokeWidth: 1 }} content={<CandleTooltip />} />
-              <RBar xAxisId="vol" yAxisId="vol" dataKey="v" fill="#E6E6E3" radius={[2, 2, 0, 0]} isAnimationActive={motion} animationDuration={900} animationEasing="ease-out" />
-              <RBar yAxisId="price" dataKey="range" shape={<Candle />} isAnimationActive={false} />
-              <Line yAxisId="price" dataKey="ema" type="monotone" stroke="var(--color-ema)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={motion} animationBegin={150} animationDuration={1400} animationEasing="ease-out" />
-              <Line yAxisId="price" dataKey="sma" type="monotone" stroke="var(--color-sma)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={motion} animationBegin={350} animationDuration={1400} animationEasing="ease-out" />
-              <ReferenceLine yAxisId="price" y={view.last.c} stroke="var(--brand)" strokeDasharray="3 4" strokeOpacity={0.6} label={<LevelPill text={fmt(view.last.c, d)} fill="var(--brand)" delay={900} />} />
-              {view.drawn.entry != null && <ReferenceLine yAxisId="price" y={view.drawn.entry} stroke="#A3A3A3" strokeDasharray="3 4" label={<LevelPill delay={1050} text={`ENTRY ${fmt(view.drawn.entry, d)}`} fill="#E8E8E6" color="#111" />} />}
-              {view.drawn.target != null && <ReferenceLine yAxisId="price" y={view.drawn.target} stroke="var(--trade)" strokeDasharray="3 4" label={<LevelPill delay={1150} text={`TARGET ${fmt(view.drawn.target, d)}`} fill="var(--trade)" color="#111" />} />}
-              {view.drawn.stop != null && <ReferenceLine yAxisId="price" y={view.drawn.stop} stroke="#111" strokeDasharray="3 4" label={<LevelPill delay={1250} text={`STOP LOSS ${fmt(view.drawn.stop, d)}`} fill="#111" />} />}
-            </ComposedChart>
-          </ChartContainer>
+          <span className="ml-auto flex items-center gap-2">
+            <span className="flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-xs"><span className="size-1.5 rounded-full bg-brand" />EMA 20</span>
+            <span className="flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-xs"><span className="size-1.5 rounded-full bg-trade" />MA 50</span>
+          </span>
+        )}
+      </div>
+      {live && indicators && (
+        <div className="flex flex-wrap items-center gap-2 px-5 pt-2 sm:px-6">
+          <span className="num flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-xs"><span className="size-1.5 rounded-full bg-brand" />EMA 20 (4h) {fmt(indicators.ema20, d)}</span>
+          <span className="num flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-xs"><span className="size-1.5 rounded-full bg-trade" />MA 50 (4h) {fmt(indicators.ma50, d)}</span>
+          <span className="num flex h-7 items-center rounded-full bg-muted px-3 text-xs">4h range {fmt(indicators.rangeLo, d)}–{fmt(indicators.rangeHi, d)}</span>
+        </div>
+      )}
+
+      <div className="px-3 pt-3 pb-3 sm:px-4">
+        {!live ? (
+          historyChart
+        ) : status === "error" ? (
+          <EmptyState className="mx-2 my-4 min-h-[260px]" title="Market data unavailable" icon={<CandlestickChart className="size-4" />}>
+            Live prices for {symbol} could not be loaded. Nothing is shown rather than estimated prices.
+          </EmptyState>
+        ) : (
+          <div className="h-[300px]">
+            <Liveline
+              data={points}
+              value={value}
+              theme="light"
+              color="#5B7CFA"
+              loading={status === "loading"}
+              mode={mode}
+              candles={candles}
+              liveCandle={liveCandle}
+              candleWidth={60}
+              window={windowSecs}
+              referenceLine={entry ? { value: entry, label: "Entry" } : undefined}
+              formatValue={(v) => fmt(v, d)}
+              lineWidth={2}
+              badgeVariant="minimal"
+            />
+          </div>
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 px-5 py-3 sm:px-6">
-        <Micro>{series ? `${series.source} · ${error ? "update unavailable" : streaming ? "live" : "refreshing every 10s"} · 4h candles · updated ${new Date(series.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Public market data"}</Micro>
         <Micro>
-          {view?.hidden
-            ? "Open trade levels are outside the live price range and not drawn"
-            : levels
-              ? `${agentName ?? "Agent"} open trade levels shown`
-              : agentName
-                ? `No open ${agentName} trade`
-                : ""}
+          {!live
+            ? history ? `${history.source} · ${HISTORY_RANGES[range].label} · updated ${new Date(history.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Loading price history"
+            : source ? `${source} · ${status === "live" ? "live trades" : status === "polling" ? "polling every 3s" : "connecting"} · 1m candles` : "Public market data"}
+        </Micro>
+        <Micro>
+          {levels && (entry || extraLevels.length)
+            ? `${agentName ?? "Agent"} open trade${extraLevels.map(([k, v]) => ` · ${k} ${fmt(v, d)}`).join("")}`
+            : agentName
+              ? `No open ${agentName} trade`
+              : ""}
         </Micro>
       </div>
     </Card>

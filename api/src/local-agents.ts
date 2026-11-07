@@ -12,6 +12,14 @@ export async function localAdmin(platform: Platform) {
   if (process.env.FLASH_MODE !== "sim" || await platform.pub.getChainId() !== 31337 || !(await platform.pub.request({ method: "web3_clientVersion" })).toLowerCase().includes("anvil")) throw new Error("Local deployment is unavailable on this network");
   return clients(process.env.VAULT_RPC_URL!, 31337, process.env.FLASH_SPENDER_PRIVATE_KEY as Hex);
 }
+/** The key the agent runtime signs ComputeTreasury calls with (agent/src/config.ts: ZG_PRIVATE_KEY, else the proposer). */
+export const treasuryOperator = () => privateKeyToAccount((process.env.ZG_PRIVATE_KEY ?? process.env.PROPOSER_PRIVATE_KEY) as Hex).address;
+/** The runtime signs treasury calls from this wallet, so it needs local-chain gas (anvil ETH, no real value). */
+export async function ensureTreasuryOperatorGas(platform: Platform) {
+  const admin = await localAdmin(platform); const operator = treasuryOperator();
+  if ((await platform.pub.getBalance({ address: operator })) >= parseUnits("0.1", 18)) return;
+  await admin.pub.waitForTransactionReceipt({ hash: await admin.wallet.sendTransaction({ to: operator, value: parseUnits("5", 18), account: admin.account, chain: admin.chain }) });
+}
 /** Harvest limits: at most 5 USDC per 4h cycle, never below 0.01 USDC. */
 const HARVEST = { max: 5_000000n, min: 10_000n, interval: 4n * 3600n };
 /** One 4h cycle of compute in USDC: burn (0G/h) x 4 x 0G price. */
@@ -61,7 +69,8 @@ export async function deployLocalAgent(platform: Platform, definition: AgentDefi
     await send(vault, perpetuaVaultAbi, "setFeeManager", [proposer]);
     await send(vault, perpetuaVaultAbi, "setAgentOwner", [definition.owner]);
     await send(dep.harvestRouter, harvestRouterAbi, "setVault", [vault, true]);
-    await send(dep.computeTreasury, computeTreasuryAbi, "configureAgent", [id, proposer, parseUnits(String(definition.config.compute.maxDailySpendOg), 18)]);
+    await ensureTreasuryOperatorGas(platform);
+    await send(dep.computeTreasury, computeTreasuryAbi, "configureAgent", [id, treasuryOperator(), parseUnits(String(definition.config.compute.maxDailySpendOg), 18)]);
     await send(dep.registry, agentRegistryAbi, "register", [id, definition.name, definition.config.template, vault, gate, wallet, proposer]);
     // Compute is paid from income: the vault's harvest moves up to the cycle's compute bill to the agent's 0G treasury.
     await send(gate, riskGateAbi, "setKeeperEconomics", [0n, HARVEST.max, HARVEST.min, HARVEST.interval]);
