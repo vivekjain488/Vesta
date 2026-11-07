@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Geist, JetBrains_Mono } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
 import { RevealRoot } from "@/components/Reveal";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,9 +8,9 @@ import { PrivyBridge } from "@/components/PrivyBridge";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
-/** Geist for UI and money, Instrument Serif for display titles, JetBrains Mono for micro labels and hashes. */
+/** Geist for UI and money, Bricolage Grotesque for display titles, JetBrains Mono for micro labels and hashes. */
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
-const serif = Instrument_Serif({ weight: "400", subsets: ["latin"], variable: "--font-serif" });
+const serif = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-serif", display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono-face" });
 
 export const metadata: Metadata = {

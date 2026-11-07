@@ -65,7 +65,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
             <span className="size-1.5 rounded-full bg-trade" /> ETHGlobal Mumbai 2026 · trading agent prototype
             <BorderBeam size={60} duration={7} colorFrom="#FF4D00" colorTo="#5B7CFA" />
           </span>
-          <SplitHeading className="mt-7 font-display text-[3.4rem] leading-[0.95] tracking-tight sm:text-7xl md:text-[5.6rem]">
+          <SplitHeading className="mt-7 font-display text-[3rem] leading-[1] tracking-[-0.04em] sm:text-7xl md:text-[5.2rem]">
             Agents that pay for their own brains.
           </SplitHeading>
           <p data-reveal className="mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
@@ -96,7 +96,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
       <section id="how" className="mx-auto max-w-6xl scroll-mt-4 px-5 py-24 sm:px-8">
         <div className="max-w-2xl">
           <Micro>How it works</Micro>
-          <h2 data-reveal className="mt-3 font-display text-5xl leading-[1] tracking-tight sm:text-6xl">The AI proposes. RiskGate disposes.</h2>
+          <h2 data-reveal className="mt-3 font-display text-5xl leading-[1.02] tracking-[-0.035em] sm:text-6xl">The AI proposes. RiskGate disposes.</h2>
           <p data-reveal className="mt-4 text-muted-foreground">Explore the prototype and the components planned for a hosted agent.</p>
         </div>
         <div className="mt-12 grid gap-3 md:grid-cols-5">
@@ -125,7 +125,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
         <div className="relative z-10 mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-6 py-16 sm:px-10 sm:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:py-24">
           <div>
             <Micro className="text-foreground/70">One decision, end to end</Micro>
-            <h2 data-reveal className="mt-3 font-display text-5xl leading-[1] tracking-tight sm:text-6xl">Every move leaves a receipt.</h2>
+            <h2 data-reveal className="mt-3 font-display text-5xl leading-[1.02] tracking-[-0.035em] sm:text-6xl">Every move leaves a receipt.</h2>
             <p data-reveal className="mt-4 text-foreground/75"><ZeroGText text="The intended workflow combines market observations, model analysis and risk checks. The illustration below is an example, not a live trade." />
           </p>
             <dl data-reveal className="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
@@ -148,7 +148,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-2xl">
             <Micro>Under the hood</Micro>
-            <h2 data-reveal className="mt-3 font-display text-5xl leading-[1] tracking-tight sm:text-6xl">Who talks to whom.</h2>
+            <h2 data-reveal className="mt-3 font-display text-5xl leading-[1.02] tracking-[-0.035em] sm:text-6xl">Who talks to whom.</h2>
             <p data-reveal className="mt-4 text-muted-foreground">This diagram illustrates the intended architecture. Some connections, including live funding and execution, remain under development.</p>
           </div>
           <ul data-reveal className="flex flex-wrap gap-1.5">
@@ -163,7 +163,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
         <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr]">
           <article data-slot="card" className="rounded-[28px] bg-card p-7 shadow-[0_1px_2px_rgba(17,17,17,0.03),0_0_0_1px_rgba(17,17,17,0.04)]">
             <Micro>Metabolism</Micro>
-            <h2 className="mt-3 font-display text-5xl leading-[1] tracking-tight">Runway decides the brain.</h2>
+            <h2 className="mt-3 font-display text-4xl leading-[1.02] tracking-tight">Runway decides the brain.</h2>
             <p className="mt-4 text-muted-foreground">The intended policy adjusts model use as compute funds change. Automatic funding and live operation are not yet enabled.</p>
             <ol className="mt-7 grid gap-2 sm:grid-cols-4">
               {TIERS.map((t, i) => {
@@ -183,7 +183,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
             <GlowGrid tone="orange" intensity={0.85} origin="85% 115%" follow />
             <div className="relative">
               <Micro className="text-foreground/70">Income engines</Micro>
-              <h3 className="mt-3 font-display text-4xl leading-[1.05]">Potential income sources.</h3>
+              <h3 className="mt-3 font-display text-3xl leading-[1.1] tracking-[-0.03em]">Potential income sources.</h3>
               <ul className="mt-6 flex flex-wrap gap-2">
                 {ENGINES.map((e) => <li key={e} data-reveal="pop" className="rounded-full bg-white/40 px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-black/5 backdrop-blur">{e}</li>)}
               </ul>
@@ -203,7 +203,7 @@ export function Landing({ signedIn, busy, error, onSignIn }: { signedIn: boolean
           style={{ background: "radial-gradient(ellipse 62% 92% at 50% 100%, rgba(255,77,0,1) 0%, rgba(255,96,24,0.88) 16%, rgba(255,138,87,0.62) 34%, rgba(255,184,150,0.36) 52%, rgba(255,222,205,0.15) 68%, rgba(255,255,255,0) 84%)" }}
         />
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 py-32 text-center sm:px-8">
-          <h2 data-reveal className="font-display text-5xl leading-[1] tracking-tight sm:text-7xl">Start building your agent.</h2>
+          <h2 data-reveal className="font-display text-5xl leading-[1.02] tracking-[-0.035em] sm:text-7xl">Start building your agent.</h2>
           <p data-reveal className="mt-5 max-w-xl text-foreground/75">Sign in with MetaMask, pick a strategy and try the local test flow. Live trading and deposits are not yet available.</p>
           <div data-reveal className="mt-9"><Primary /></div>
         </div>

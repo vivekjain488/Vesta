@@ -7,10 +7,10 @@
 /* Light-only design system. Visual reference: frontend/design/reference.png */
 
 @theme inline {
-  /* Fonts: Instrument Serif for display, Geist for UI + money, JetBrains Mono for micro labels / hashes. */
+  /* Fonts: Bricolage Grotesque for display, Geist for UI + money, JetBrains Mono for micro labels / hashes. */
   --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
   --font-heading: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-serif), "Times New Roman", serif;
+  --font-display: var(--font-serif), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, monospace;
 
   --color-background: var(--background);

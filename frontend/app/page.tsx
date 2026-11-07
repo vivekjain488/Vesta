@@ -75,12 +75,12 @@ export default function Dashboard() {
       {online && chainDegraded && <Alert className="rounded-3xl border-0 bg-muted"><WifiOff /><AlertTitle>On-chain data is unavailable.</AlertTitle><AlertDescription>Some deployed agents cannot be loaded until their network is reachable. Saved drafts remain available.</AlertDescription></Alert>}
 
       {online && !chainDegraded && agents.length === 0 && (
-        <Card className="relative isolate items-start overflow-hidden border-0 bg-trade-soft px-8 py-10">
-          <div aria-hidden className="pointer-events-none absolute -top-28 -right-24 -z-10 size-80 rounded-full bg-trade/20 blur-3xl" />
-          <Micro className="text-trade-deep">Get started</Micro>
-          <h3 className="font-display text-4xl leading-none">Start with your first agent</h3>
-          <p className="max-w-xl text-muted-foreground">Choose a strategy and create an agent on the local test network. Live deposits and autonomous trading are not enabled yet.</p>
-          <Button asChild variant="trade" size="lg" className="mt-2">
+        <Card className="flex-row items-center justify-between gap-4 border-0 bg-trade-soft px-6 py-4">
+          <div className="min-w-0">
+            <h3 className="font-display text-2xl leading-tight tracking-tight">Start with your first agent</h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">Local test network. Live deposits are not enabled yet.</p>
+          </div>
+          <Button asChild variant="trade" size="lg" className="shrink-0">
             <Link href="/studio">Create an agent <ArrowRight /></Link>
           </Button>
         </Card>
